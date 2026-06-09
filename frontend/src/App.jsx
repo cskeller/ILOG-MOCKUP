@@ -3,15 +3,13 @@ import styled from 'styled-components'
 import axios from 'axios'
 import './App.css'
 
-/* ─── MOCK DATA (mockup only — remove when API is live) ──────────────────── */
-const _champions = ['Hecarim','Vi','Graves','Viego','Nidalee','Kindred',"Kha'Zix",'Elise','Rek\'Sai','Warwick','Amumu','Jarvan IV','Lee Sin','Diana']
-const _ranksList = ['Gold II','Gold I','Platinum IV','Platinum III','Platinum II']
-const _patches   = ['15.10','15.11','15.12']
-const _dates     = ['2026-05-14','2026-05-15','2026-05-16','2026-05-17','2026-05-18','2026-05-19','2026-05-20','2026-05-21','2026-05-22','2026-05-23','2026-05-24','2026-05-25','2026-05-26','2026-05-27','2026-05-28','2026-05-29','2026-05-30','2026-05-31','2026-06-01','2026-06-02']
-function _s(seed,a,b){let x=Math.sin(seed)*10000;x=x-Math.floor(x);return Math.floor(x*(b-a+1))+a}
-function _p(seed,arr){return arr[_s(seed,0,arr.length-1)]}
-function _computeEarlyTempo(gd,xd,cd,kad){return (0.35*(gd/800))+(0.3*(xd/750))+(0.2*(cd/15))+(0.15*(kad/3))}
-const _notesPool = [
+// mock data — remove when API is live
+const mockChampions = ['Hecarim','Vi','Graves','Viego','Nidalee','Kindred',"Kha'Zix",'Elise','Rek\'Sai','Warwick','Amumu','Jarvan IV','Lee Sin','Diana']
+const mockDates = ['2026-05-14','2026-05-15','2026-05-16','2026-05-17','2026-05-18','2026-05-19','2026-05-20','2026-05-21','2026-05-22','2026-05-23','2026-05-24','2026-05-25','2026-05-26','2026-05-27','2026-05-28','2026-05-29','2026-05-30','2026-05-31','2026-06-01','2026-06-02']
+function seededRandInt(seed,a,b){let x=Math.sin(seed)*10000;x=x-Math.floor(x);return Math.floor(x*(b-a+1))+a}
+function seededPick(seed,arr){return arr[seededRandInt(seed,0,arr.length-1)]}
+function calcEarlyTempo(gd,xd,cd,kad){return (0.35*(gd/800))+(0.3*(xd/750))+(0.2*(cd/15))+(0.15*(kad/3))}
+const mockNotesPool = [
   'Lost tempo trying to contest scuttle at level 3.',
   'Ganked mid twice but lane was already pushed — wasted time.',
   'Good dragon steal secured two consecutive objectives.',
@@ -23,49 +21,72 @@ const _notesPool = [
   'Calm and focused throughout — made the right concession plays.',
   'Tilt spiral after two early deaths led to overforced plays.',
 ]
-const _gpOpts = ['Good','Okay','Bad']
-const _mmOpts = ['Positioning','Late Reset','Emotional Play','Farm Path Error','Objective Fumble']
-const _mtOpts = ['Calm','Frustrated','Tilted']
-const _frOpts = ['Good','Okay','Bad']
-const MOCK_STATS = Array.from({length:20},(_,i)=>{
-  const s=i*7+13
-  const result=_s(s+1,0,9)>4?'Win':'Loss'
-  const kills=_s(s+2,1,10), deaths=_s(s+3,1,8), assists=_s(s+4,3,16)
-  const teamKills=kills+_s(s+5,4,16)
-  const kp=(kills+assists)/Math.max(teamKills,1)
-  const gold10=_s(s+6,3100,4400), enemyGold10=_s(s+7,3000,4300)
-  const xp10=_s(s+8,3800,5100),   enemyXp10=_s(s+9,3700,5000)
-  const cs10=_s(s+10,38,72),      enemyCs10=_s(s+11,36,70)
-  const ka10=_s(s+12,1,6),        enemyKa10=_s(s+13,1,6)
-  const cs=_s(s+14,140,260), vision=_s(s+15,18,52), dmg=_s(s+16,14000,38000)
-  const totalMins=_s(s+17,22,47), secs=_s(s+18,0,59)
-  const rank=_p(s+19,_ranksList), lpBase=_s(s+20,0,99)
-  const lpChange=result==='Win'?_s(s+21,14,22):-_s(s+21,14,22)
-  const gd=gold10-enemyGold10, xd=xp10-enemyXp10, cd=cs10-enemyCs10, kad=ka10-enemyKa10
+const gpOpts = ['Good','Okay','Bad']
+const mmOpts = ['Positioning','Late Reset','Emotional Play','Farm Path Error','Objective Fumble']
+const mtOpts = ['Calm','Frustrated','Tilted']
+const frOpts = ['Good','Okay','Bad']
+
+// each tier = 4 divisions × 100 LP; Gold starts at abs 1200, Platinum at 1600
+const TIER_ORDER = ['Iron','Bronze','Silver','Gold','Platinum','Emerald','Diamond']
+const DIVS = ['IV','III','II','I']
+
+function absoluteToRankLabel(abs) {
+  const tier = Math.floor(abs / 400)
+  const lpInTier = abs % 400
+  const div = Math.floor(lpInTier / 100)
+  const lp = lpInTier % 100
   return {
-    match:i+1, date:_dates[i], patch:_p(s+22,_patches), rank,
-    lp:lpBase, lp_change:lpChange, champion:_p(s+23,_champions),
-    result, length:`${totalMins}:${String(secs).padStart(2,'0')}`,
-    team_kills:teamKills, kills, deaths, assists, cs,
-    damage_dealt:dmg, vision_score:vision, kill_participation:kp,
-    obj_secured:_s(s+24,0,7),
-    first_item_timing:`${_s(s+25,9,17)}:${String(_s(s+26,0,59)).padStart(2,'0')}`,
-    gold_delta_10:gd, xp_delta_10:xd, cs_delta_10:cd, ka_delta_10:kad,
-    early_tempo:_computeEarlyTempo(gd,xd,cd,kad),
-    cs_per_min:(cs/totalMins).toFixed(2),
-    vision_per_min:(vision/totalMins).toFixed(2),
-    damage_per_min:Math.floor(dmg/totalMins),
-    gold_10:gold10, enemy_gold_10:enemyGold10,
-    xp_10:xp10, enemy_xp_10:enemyXp10,
-    cs_10:cs10, enemy_cs_10:enemyCs10,
-    ka_10:ka10, enemy_ka_10:enemyKa10,
-    gameplan_adherence:_p(s+27,_gpOpts),
-    major_mistake:_p(s+28,_mmOpts),
-    mental:_p(s+29,_mtOpts),
-    focus_rating:_p(s+30,_frOpts),
-    notes:_notesPool[_s(s+31,0,_notesPool.length-1)],
+    rank: `${TIER_ORDER[Math.min(tier, TIER_ORDER.length - 1)]} ${DIVS[Math.min(div, 3)]}`,
+    lp,
   }
-})
+}
+
+const MOCK_STATS = (() => {
+  let absLp = 1620 // Platinum IV ~20 LP — straddles the Gold/Plat border
+  return Array.from({ length: 20 }, (_, i) => {
+    const s = i * 7 + 13
+    const result = seededRandInt(s + 1, 0, 9) > 4 ? 'Win' : 'Loss'
+    const swing = result === 'Win' ? seededRandInt(s + 21, 18, 21) : -seededRandInt(s + 21, 18, 21)
+    absLp = Math.max(1200, Math.min(1999, absLp + swing))
+    const { rank, lp } = absoluteToRankLabel(absLp)
+
+    const kills   = seededRandInt(s + 2, 1, 10), deaths = seededRandInt(s + 3, 1, 8), assists = seededRandInt(s + 4, 3, 16)
+    const teamKills = kills + seededRandInt(s + 5, 4, 16)
+    const kp = (kills + assists) / Math.max(teamKills, 1)
+    const gold10 = seededRandInt(s + 6, 3100, 4400), enemyGold10 = seededRandInt(s + 7, 3000, 4300)
+    const xp10   = seededRandInt(s + 8, 3800, 5100), enemyXp10   = seededRandInt(s + 9, 3700, 5000)
+    const cs10   = seededRandInt(s + 10, 38, 72),    enemyCs10   = seededRandInt(s + 11, 36, 70)
+    const ka10   = seededRandInt(s + 12, 1, 6),      enemyKa10   = seededRandInt(s + 13, 1, 6)
+    const cs = seededRandInt(s + 14, 140, 260), vision = seededRandInt(s + 15, 18, 52), dmg = seededRandInt(s + 16, 14000, 38000)
+    const totalMins = seededRandInt(s + 17, 22, 47), secs = seededRandInt(s + 18, 0, 59)
+    const gd = gold10 - enemyGold10, xd = xp10 - enemyXp10, cd = cs10 - enemyCs10, kad = ka10 - enemyKa10
+
+    return {
+      match: i + 1, date: mockDates[i], patch: i < 10 ? '26.10' : '26.11', rank,
+      lp, lp_change: swing, champion: seededPick(s + 23, mockChampions),
+      result, length: `${totalMins}:${String(secs).padStart(2, '0')}`,
+      team_kills: teamKills, kills, deaths, assists, cs,
+      damage_dealt: dmg, vision_score: vision, kill_participation: kp,
+      obj_secured: seededRandInt(s + 24, 0, 7),
+      first_item_timing: `${seededRandInt(s + 25, 9, 17)}:${String(seededRandInt(s + 26, 0, 59)).padStart(2, '0')}`,
+      gold_delta_10: gd, xp_delta_10: xd, cs_delta_10: cd, ka_delta_10: kad,
+      early_tempo: calcEarlyTempo(gd, xd, cd, kad),
+      cs_per_min: (cs / totalMins).toFixed(2),
+      vision_per_min: (vision / totalMins).toFixed(2),
+      damage_per_min: Math.floor(dmg / totalMins),
+      gold_10: gold10, enemy_gold_10: enemyGold10,
+      xp_10: xp10, enemy_xp_10: enemyXp10,
+      cs_10: cs10, enemy_cs_10: enemyCs10,
+      ka_10: ka10, enemy_ka_10: enemyKa10,
+      gameplan_adherence: seededPick(s + 27, gpOpts),
+      major_mistake: seededPick(s + 28, mmOpts),
+      mental: seededPick(s + 29, mtOpts),
+      focus_rating: seededPick(s + 30, frOpts),
+      notes: mockNotesPool[seededRandInt(s + 31, 0, mockNotesPool.length - 1)],
+    }
+  })
+})()
+
 const MOCK_FOCUS_CYCLES = [
   { startdate:'2026-04-26', focus:'Reduce Deaths',    description:'Die fewer than 5 times per game on average. Prioritize safe pathing over contested objectives when behind.' },
   { startdate:'2026-05-10', focus:'First Item Timing',description:'Complete first item before 13:00 in every game. Improve clear efficiency and skip unnecessary early ganks.' },
@@ -79,34 +100,30 @@ const MOCK_FOCUS_STATS = [
   { concept:'— Not Set —',       winRate:'44%', veryGood:'12%', good:'22%', okay:'28%', bad:'38%' },
 ]
 
-/* ─── TOUR STEPS ─────────────────────────────────────────────────────────── */
-/* id:     unique identifier — 'do-search' triggers the auto-search
-   anchor: CSS selector for the element to spotlight (null = centered)
-   side:   'below-center' | 'below-right' | 'center'
-   tab:    switch active tab before showing step (null = no switch)           */
+/* tour step definitions */
 const TOUR_STEPS = [
   {
     id: 'welcome',
     title: 'Welcome — Reviewer Guide',
-    text: "Hi! This is an interactive walkthrough of the Jungle Improvement Log. It'll take you through every feature automatically — including loading real mock data. Use Next / Back to navigate, or click anywhere outside the bubble to exit.",
+    text: "Hi! This is an interactive walkthrough of the Jungle Improvement Log. It'll take you through every feature automatically — including rendered mock data. Use Next / Back to navigate, or click anywhere outside the bubble to exit.",
     anchor: null, side: 'center', tab: null,
   },
   {
     id: 'search-btn',
     title: 'Search Summoner',
-    text: "Searches a summoner's past 20 matches and shows them instantly — no account required. In production this calls Riot's Match v5 API. Signed-in users get their past 30 matches searched and stored, with new matches appended on each update. No real API call is made in this mockup.",
+    text: "Searches a summoner's past 20 ranked matches via Riot's Match-v5 API and loads them into the log. This is a personal tool — intended for the developer's own account or a small private group. No real API call is made in this mockup.",
     anchor: '[data-tour="search-summoner-btn"]', side: 'below-center', tab: null,
   },
   {
     id: 'auth-btn',
     title: 'Sign Up / Log In',
-    text: "Creating an account unlocks stored match history (30 matches, updated on demand), the ability to save Review notes, and the Update button. Authentication is not currently functional — this is a mockup only. A backend with user accounts will be required before this goes live.",
+    text: "Intended for personal use — the developer's own account or a small private group, consistent with a personal API key. An account unlocks stored match history and the ability to save Review notes between sessions. Authentication is not currently functional — this is a mockup only.",
     anchor: '[data-tour="auth-btn"]', side: 'below-center', tab: null,
   },
   {
     id: 'do-search',
     title: 'Searching now…',
-    text: "Loading mock match data for 'JungleMain#NA1' — this simulates what happens when a summoner is searched. In production, this would call Riot's API and return the past 20 matches.",
+    text: "Loading mock match data for 'JungleMain#NA1' — this simulates what happens when a summoner is searched. Planned functionality for this is to call Riot's API and return the past 20 matches.",
     anchor: '[data-tour="search-summoner-btn"]', side: 'below-center', tab: null,
   },
   {
@@ -130,7 +147,7 @@ const TOUR_STEPS = [
   {
     id: 'tab-overview',
     title: 'Overview tab',
-    text: 'A high-level match log: date, patch, rank, LP change, champion, win/loss, and game length. Win rows are tinted green, losses red. Rank cells reflect their tier colour.',
+    text: 'A high-level match log: date, patch, rank, LP change, champion, win/loss, and game length. Win rows are tinted green, losses red. Rank cells reflect their tier color.',
     anchor: '[data-tour="tab-Overview"]', side: 'below-center', tab: 'Overview',
   },
   {
@@ -142,7 +159,7 @@ const TOUR_STEPS = [
   {
     id: 'early-tempo',
     title: 'Early Tempo score',
-    text: 'A composite 10-min lead/deficit score: (0.35 × Gold Δ/800) + (0.3 × XP Δ/750) + (0.2 × CS Δ/15) + (0.15 × K+A Δ/3). Positive = ahead at 10 min. Colour-coded cyan → green → yellow → red.',
+    text: 'A composite 10-min lead/deficit score: (0.35 × Gold Δ/800) + (0.3 × XP Δ/750) + (0.2 × CS Δ/15) + (0.15 × K+A Δ/3). Positive = ahead at 10 min. Color-coded cyan → green → yellow → red. This is one custom metric in a series of metrics that are planned for development to highlight fundamental aspects of gameplay, signaling strengths and weaknesses.',
     anchor: '[data-tour="col-early-tempo"]', side: 'below-center', tab: 'Details',
   },
   {
@@ -160,25 +177,25 @@ const TOUR_STEPS = [
   {
     id: 'tab-review',
     title: 'Review tab',
-    text: 'Per-game review: Gameplan Adherence, Major Mistake, Mental State, Focus Rating, and free-text notes — all logged via colour-coded dropdowns. Entries are tied to a user account, so guests who have not signed up cannot save anything here.',
+    text: 'Per-game review: Gameplan Adherence, Major Mistake, Mental State, Focus Rating, and free-text notes — all logged via color-coded dropdowns. Entries are tied to a user account, so guests who have not signed up cannot save anything here.',
     anchor: '[data-tour="tab-Review"]', side: 'below-center', tab: 'Review',
   },
   {
     id: 'tab-weekly',
     title: 'Weekly Summary tab',
-    text: 'KPI cards colour-coded against benchmarks, plus a per-week table covering games played, win rate, average deaths, objectives, good/bad tempo rates, tilt frequency, and LP progression.',
+    text: 'KPI cards color-coded against benchmarks, plus a per-week table covering games played, win rate, average deaths, objectives, good/bad tempo rates, tilt frequency, and LP progression.',
     anchor: '[data-tour="tab-Weekly Summary"]', side: 'below-center', tab: 'Weekly Summary',
   },
   {
     id: 'tab-focus',
     title: 'Focus Cycles tab',
-    text: 'Every two weeks the player sets one improvement focus (e.g. "First Item Timing"). The stats table measures win rate and focus-rating distribution per concept — making it quantifiable whether the focus is helping.',
+    text: 'Every two weeks the player sets one improvement focus (e.g. "Reduce Deaths"). The stats table measures win rate and focus-rating distribution per concept — making it quantifiable whether the focus is helping.',
     anchor: '[data-tour="tab-Focus Cycles"]', side: 'below-center', tab: 'Focus Cycles',
   },
   {
     id: 'api-note',
-    title: 'How the API will be used',
-    text: "Post-game, the app calls Riot's Match v5 API to pull match data. All metric calculations happen server-side, keeping the API key secure. Review notes and focus cycles are stored per user account in a backend database — the frontend only receives processed, ready-to-display data.",
+    title: 'How the API would be used',
+    text: "All API calls happen server-side — the key is never exposed to the frontend. Endpoints used: riot/account/v1 (summoner lookup), lol/summoner/v4 (summoner data), lol/league/v4 (current rank), lol/match/v5/matches (match data + timeline). Note: Riot's API does not expose per-game LP history, so the LP column is manually tracked. All metric calculations are computed server-side before the frontend receives any data.",
     anchor: null, side: 'center', tab: null,
   },
 ]
@@ -259,15 +276,16 @@ const Container = styled.div`
   color: #f8fafc;
 `
 
+/* Header: three-column grid keeps center stats viewport-centered */
 const Header = styled.div`
   position: fixed;
   top: 0;
   left: 0;
   width: 100%;
   height: var(--header-h);
-  display: flex;
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
   align-items: center;
-  gap: 10px;
   padding: 0 16px;
   background: rgba(28, 11, 10, 0.92);
   border-bottom: 1px solid rgba(255, 255, 255, 0.06);
@@ -283,6 +301,36 @@ const Header = styled.div`
     opacity: 1;
     pointer-events: auto;
   `}
+`
+
+/* Left zone: brand + update button */
+const HeaderLeft = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  justify-content: flex-start;
+`
+
+/* Center zone: all the stat pills */
+const HeaderCenter = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  justify-content: center;
+  min-width: 0;
+  overflow: hidden;
+
+  @media (max-width: 900px) {
+    .hide-narrow { display: none; }
+  }
+`
+
+/* Right zone: density + auth */
+const HeaderRight = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  justify-content: flex-end;
 `
 
 const HeaderBrand = styled.div`
@@ -328,20 +376,6 @@ const HeaderStatLbl = styled.span`
   letter-spacing: 0.07em;
   text-transform: uppercase;
   white-space: nowrap;
-`
-
-const HeaderCenter = styled.div`
-  flex: 1;
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  gap: 10px;
-  min-width: 0;
-  overflow: hidden;
-
-  @media (max-width: 900px) {
-    .hide-narrow { display: none; }
-  }
 `
 
 const ImprovementFocusCD = styled.div`
@@ -456,7 +490,6 @@ const DensityToggle = styled.div`
   border-radius: 999px;
   padding: 3px;
   flex-shrink: 0;
-  margin-left: 0;
 `
 
 const DensityBtn = styled.button`
@@ -510,17 +543,8 @@ const HeaderAuth = styled.button`
   letter-spacing: 0.03em;
   color: rgba(159, 199, 199, 0.95);
   background: rgba(159, 199, 199, 0.06);
-  margin-left: auto;
-  margin-right: 8px;
   flex-shrink: 0;
   &:hover { background: rgba(159,199,199,0.12); }
-`
-
-const RightControls = styled.div`
-  display:flex;
-  align-items:center;
-  gap:8px;
-  margin-left: auto;
 `
 
 const BannerEyebrow = styled.p`
@@ -670,7 +694,6 @@ const UpdateBtn = styled.button`
   flex-shrink: 0;
   white-space: nowrap;
   opacity: 1;
-  margin-left: 6px;
 
   &:disabled {
     cursor: not-allowed;
@@ -753,7 +776,6 @@ const StyledSelect = styled.select`
   }
 `
 
-/* ─── ReviewSelect: driven by $val prop so color is always in sync ────────── */
 const ReviewSelect = styled.select`
   width: 100%;
   appearance: none;
@@ -977,7 +999,7 @@ const Rank = styled.td`
   }};
 `
 
-/* ─── OVERVIEW ───────────────────────────────────────────────────────────── */
+/* Overview section */
 const overviewCols = [
   { w: '8%' }, { w: '14%' }, { w: '10%' }, { w: '16%' },
   { w: '8%' }, { w: '14%' }, { w: '10%' }, { w: '10%' },
@@ -1021,7 +1043,7 @@ const OverviewBodyTable = styled.table`
   tbody tr:hover { background: rgba(255,255,255,0.04); }
 `
 
-/* ─── DETAILS ────────────────────────────────────────────────────────────── */
+/* Details section */
 const detailsCols = [
   { w: '5%' }, { w: '9%' }, { w: '9%' }, { w: '5%' }, { w: '6%' },
   { w: '6%' }, { w: '5%' }, { w: '8%' }, { w: '7%' }, { w: '9%' },
@@ -1066,7 +1088,7 @@ const DetailsBodyTable = styled.table`
   tbody tr:hover { background: rgba(255,255,255,0.04); }
 `
 
-/* ─── METRICS ────────────────────────────────────────────────────────────── */
+/* Metrics section */
 const metricsCols = [
   { w: '10%' }, { w: '12%' }, { w: '10%' }, { w: '11%' }, { w: '11%' },
   { w: '11%' }, { w: '11%' }, { w: '11%' }, { w: '13%' },
@@ -1110,7 +1132,7 @@ const MetricsBodyTable = styled.table`
   tbody tr:hover { background: rgba(255,255,255,0.04); }
 `
 
-/* ─── TEMPO ──────────────────────────────────────────────────────────────── */
+/* Tempo section */
 const tempoCols = [
   { w: '6%' }, { w: '9%' }, { w: '9%' }, { w: '11%' }, { w: '9%' },
   { w: '10%' }, { w: '9%' }, { w: '10%' }, { w: '10%' }, { w: '12%' },
@@ -1154,7 +1176,7 @@ const TempoBodyTable = styled.table`
   tbody tr:hover { background: rgba(255,255,255,0.04); }
 `
 
-/* ─── REVIEW ─────────────────────────────────────────────────────────────── */
+/* Review section */
 const reviewCols = [
   { w: '5%' }, { w: '10%' }, { w: '12%' }, { w: '12%' },
   { w: '10%' }, { w: '14%' }, { w: '37%' },
@@ -1198,7 +1220,7 @@ const ReviewBodyTable = styled.table`
   tbody tr:hover { background: rgba(255,255,255,0.04); }
 `
 
-/* ─── WEEKLY SUMMARY ─────────────────────────────────────────────────────── */
+/* Weekly Summary section */
 const weeklyCols = Array(13).fill({ w: '7.69%' })
 
 const WeeklySummary = styled.section`
@@ -1334,7 +1356,7 @@ const TiltGames = makeKpiCard(
   v => borderFor(v >= 0.15 ? colorRed : v >= 0.13 ? colorYellow : v >= 0.1 ? colorGreen : colorCyan)
 )
 
-/* ─── FOCUS CYCLES ───────────────────────────────────────────────────────── */
+/* Focus Cycles section */
 const FocusCyclesSection = styled.section`
   position: absolute;
   top: var(--section-top, 112px);
@@ -1428,7 +1450,7 @@ const ImprovementFocusSelect = styled.select`
   }
 `
 
-/* ─── DISCLAIMER ─────────────────────────────────────────────────────────── */
+/* Disclaimer */
 const Disclaimer = styled.div`
   position: fixed;
   bottom: 0; left: 0; width: 100%;
@@ -1442,7 +1464,7 @@ const Disclaimer = styled.div`
   line-height: 1.5;
 `
 
-/* ─── SPEECH BUBBLE TOUR ─────────────────────────────────────────────────── */
+/* Tour overlay */
 const TourOverlay = styled.div`
   position: fixed; inset: 0; z-index: 200;
   pointer-events: ${p => p.$active ? 'auto' : 'none'};
@@ -1454,7 +1476,6 @@ const TourDimmer = styled.div`
   opacity: ${p => p.$vis ? 1 : 0};
   pointer-events: ${p => p.$vis ? 'auto' : 'none'};
 `
-/* Spotlight ring that outlines the anchored element */
 const BubbleSpotlight = styled.div`
   position: fixed;
   border: 2px solid rgba(242, 201, 107, 0.7);
@@ -1467,7 +1488,6 @@ const BubbleSpotlight = styled.div`
   transition: all 0.3s ease;
   z-index: 201;
 `
-/* Bubble is position:fixed so it never moves with scroll */
 const Bubble = styled.div`
   position: fixed;
   background: rgba(14, 7, 6, 0.98);
@@ -1505,7 +1525,6 @@ const BubbleBtn   = styled.button`
   &:hover { background: rgba(242,201,107,0.2); border-color: rgba(242,201,107,0.6); }
 `
 
-/* Landing-page tour entry — shown on the banner before search */
 const LandingTourBtn = styled.button`
   display: flex;
   align-items: center;
@@ -1550,7 +1569,6 @@ const LandingTourBtn = styled.button`
   .tour-label-sub { font-size: 0.68rem; font-weight: 500; color: rgba(248,250,252,0.45); letter-spacing: 0.05em; text-transform: uppercase; }
 `
 
-/* Post-search floating tour button — smaller, bottom-right */
 const TourStartBtn = styled.button`
   position: fixed; bottom: 36px; right: 24px; z-index: 150;
   border: 1px solid rgba(242,201,107,0.4);
@@ -1568,7 +1586,7 @@ const TourStartBtn = styled.button`
   &:hover { background: rgba(242,201,107,0.12); transform: translateY(-1px); }
 `
 
-/* ─── HELPERS ────────────────────────────────────────────────────────────── */
+/* Helpers */
 function formatEarlyTempo(val) {
   return `${val >= 0 ? '+' : ''}${(val * 100).toFixed(1)}%`
 }
@@ -1582,7 +1600,7 @@ function deltaColor(v) {
   return v > 0 ? 'rgba(114,255,86,0.8)' : v < 0 ? 'rgba(253,57,57,0.8)' : 'rgba(248,250,252,0.5)'
 }
 
-/* ─── APP ────────────────────────────────────────────────────────────────── */
+
 const App = () => {
   const [showForm, setShowForm] = useState(false)
   const [selectedRegion, setSelectedRegion] = useState('North America')
@@ -1598,7 +1616,6 @@ const App = () => {
   })
   const [existingStats, setExistingStats] = useState([])
 
-  // review state — seeded from mock data on load, real API data when live
   const [review, setReview] = useState(() => {
     const seeded = {}
     MOCK_STATS.forEach((row) => {
@@ -1638,16 +1655,7 @@ const App = () => {
   }
 
   const handleGetExistingStats = () => {
-    // mockup: use MOCK_STATS directly instead of calling the API
     setExistingStats(MOCK_STATS)
-    /* real implementation (restore when API is live):
-    axios.get('http://localhost:8000/stats/get_stats/', {
-      headers: { 'Content-Type': 'application/json' },
-      params: { summoner_name: searchQuery },
-    }).then(response => {
-      setExistingStats(response.data.match_stats)
-    })
-    */
   }
 
   useEffect(() => {
@@ -1665,19 +1673,15 @@ const App = () => {
     setReview(seeded)
   }, [existingStats])
 
-  useEffect(() => { console.log('existingStats:', existingStats) }, [existingStats])
-
-  // active focus name for header pill
   const activeFocusEntry = Object.entries(improvementFocus).reverse().find(([, v]) => v && v !== '')
   const activeFocusName = activeFocusEntry ? activeFocusEntry[1] : '— None —'
 
-  // ── TOUR ──────────────────────────────────────────────────────────────────
   const [tourActive, setTourActive] = useState(false)
   const [tourStep,   setTourStep]   = useState(0)
   const [bubblePos,  setBubblePos]  = useState({ top: 0, left: 0, tailDir: 'none', spotRect: null })
 
-  const BUBBLE_W = 340
-  const GAP = 14  // px gap between anchor and bubble
+  const BUBBLE_WIDTH = 340
+  const BUBBLE_GAP = 14
 
   const computePos = (stepIndex) => {
     const s = TOUR_STEPS[stepIndex]
@@ -1693,47 +1697,36 @@ const App = () => {
     const r = el.getBoundingClientRect()
     const vw = window.innerWidth
     const vh = window.innerHeight
-    // default spotlight padding
     let spotRect = { top: r.top - 4, left: r.left - 4, width: r.width + 8, height: r.height + 8 }
 
-    // if targeting a tab link, expand horizontally and a bit vertically
-    if (s.anchor && s.anchor.includes('tab-')) {
-      // tabs are pill-shaped and can shift slightly when activated; expand more
-      spotRect = {
-        top: r.top - 8,
-        left: r.left - 14,
-        width: r.width + 28,
-        height: r.height + 14,
-      }
+    if (s.anchor.includes('tab-')) {
+      spotRect = { top: r.top - 8, left: r.left - 14, width: r.width + 28, height: r.height + 14 }
     }
 
     let top, left, tailDir
 
     if (s.side === 'below-center') {
-      top = r.bottom + GAP
-      left = r.left + r.width / 2 - BUBBLE_W / 2
+      top = r.bottom + BUBBLE_GAP
+      left = r.left + r.width / 2 - BUBBLE_WIDTH / 2
       tailDir = 'up'
     } else if (s.side === 'below-right') {
-      top = r.bottom + GAP
-      left = r.right - BUBBLE_W
+      top = r.bottom + BUBBLE_GAP
+      left = r.right - BUBBLE_WIDTH
       tailDir = 'up-right'
     } else if (s.side === 'above-center') {
-      // will be computed after we know bubble height — approximate 160px
-      top = r.top - GAP - 160
-      left = r.left + r.width / 2 - BUBBLE_W / 2
+      top = r.top - BUBBLE_GAP - 160
+      left = r.left + r.width / 2 - BUBBLE_WIDTH / 2
       tailDir = 'down'
     }
 
-    // clamp within viewport with padding
-    left = Math.max(12, Math.min(left, vw - BUBBLE_W - 12))
-    if (top + 200 > vh) top = r.top - GAP - 200
+    left = Math.max(12, Math.min(left, vw - BUBBLE_WIDTH - 12))
+    if (top + 200 > vh) top = r.top - BUBBLE_GAP - 200
     top = Math.max(68, top)
 
     setBubblePos({ top, left, tailDir, spotRect })
   }
 
   const startTour = () => {
-    // reset to landing state so tour always starts from scratch
     setSearched(false)
     setSearchQuery('')
     setShowForm(false)
@@ -1747,16 +1740,13 @@ const App = () => {
   const tourGo = (nextStep) => {
     const s = TOUR_STEPS[nextStep]
 
-    // special: auto-search on behalf of the reviewer
     if (s.id === 'do-search') {
       setShowForm(true)
       setSearchQuery('JungleMain#NA1')
-      // slight delay so the form appears, then trigger search
       setTimeout(() => {
         setSearched(true)
         setExistingStats(MOCK_STATS)
         setTourStep(nextStep)
-        // wait for banner fly-out + sections to mount before computing position
         setTimeout(() => computePos(nextStep), 900)
       }, 120)
       return
@@ -1764,9 +1754,29 @@ const App = () => {
 
     if (s.tab) setActiveTab(s.tab)
     setTourStep(nextStep)
-    // initial compute shortly after state change, then recompute after layout/animations settle
     setTimeout(() => computePos(nextStep), 80)
     setTimeout(() => computePos(nextStep), 260)
+  }
+
+  const tourBack = (prevStep) => {
+    const s = TOUR_STEPS[prevStep]
+    if (s.tab) setActiveTab(s.tab)
+    setTourStep(prevStep)
+    // anchors inside sliding sections need to wait for the 650ms transition
+    const isStaticAnchor = !s.anchor
+      || s.anchor.includes('tab-')
+      || s.anchor.includes('update-btn')
+      || s.anchor.includes('density-toggle')
+      || s.anchor.includes('header-stats')
+      || s.anchor.includes('search-summoner-btn')
+      || s.anchor.includes('auth-btn')
+    if (isStaticAnchor) {
+      setTimeout(() => computePos(prevStep), 80)
+      setTimeout(() => computePos(prevStep), 260)
+    } else {
+      setTimeout(() => computePos(prevStep), 700)
+      setTimeout(() => computePos(prevStep), 900)
+    }
   }
 
   const tourNext = () => {
@@ -1774,26 +1784,37 @@ const App = () => {
     if (nx >= TOUR_STEPS.length) { setTourActive(false); return }
     tourGo(nx)
   }
+
   const tourPrev = () => {
     const pv = tourStep - 1
     if (pv < 0) return
-    tourGo(pv)
+    if (TOUR_STEPS[pv].id === 'do-search' || pv < TOUR_STEPS.findIndex(s => s.id === 'do-search')) {
+      setSearched(false)
+      setExistingStats([])
+      setSearchQuery('')
+      setShowForm(pv >= TOUR_STEPS.findIndex(s => s.id === 'search-btn'))
+    }
+    tourBack(pv)
   }
 
   const step = TOUR_STEPS[tourStep]
   const isCentered = !step.anchor
 
+  const latestStat = existingStats.length ? existingStats[existingStats.length - 1] : null
+
   return (
     <GlobalLayout>
       <Container>
-        {/* ── HEADER ── */}
+        {/* header */}
         <Header $searched={searched}>
-          <HeaderBrand>Jungle Improvement Log</HeaderBrand>
+          {/* Left zone: brand + update */}
+          <HeaderLeft>
+            <HeaderBrand>Jungle Improvement Log</HeaderBrand>
+            <UpdateBtn data-tour="update-btn" disabled>↻ Update</UpdateBtn>
+          </HeaderLeft>
 
-
+          {/* Center zone: stat pills — grid keeps this truly centered */}
           <HeaderCenter data-tour="header-stats">
-            <UpdateBtn data-tour="update-btn" disabled style={{ marginLeft: 160 }}>↻ Update</UpdateBtn>
-            <HeaderDivider />
             <HeaderStat>
               <HeaderStatVal>{searchQuery || '—'}</HeaderStatVal>
               <HeaderStatLbl>Summoner</HeaderStatLbl>
@@ -1805,12 +1826,12 @@ const App = () => {
             </HeaderStat>
             <HeaderDivider className="hide-narrow" />
             <HeaderStat className="hide-narrow">
-              <HeaderStatVal>Platinum IV</HeaderStatVal>
+              <HeaderStatVal>{latestStat?.rank ?? 'Platinum IV'}</HeaderStatVal>
               <HeaderStatLbl>Rank</HeaderStatLbl>
             </HeaderStat>
             <HeaderDivider className="hide-narrow" />
             <HeaderStat className="hide-narrow">
-              <HeaderStatVal>50 LP</HeaderStatVal>
+              <HeaderStatVal>{latestStat?.lp ?? 50} LP</HeaderStatVal>
               <HeaderStatLbl>LP</HeaderStatLbl>
             </HeaderStat>
             <HeaderDivider className="hide-narrow" />
@@ -1836,17 +1857,18 @@ const App = () => {
             </Legend>
           </HeaderCenter>
 
-          <RightControls>
+          {/* Right zone: density + auth */}
+          <HeaderRight>
             <DensityToggle data-tour="density-toggle">
               <DensityBtn $active={densityKey === 'compact'}     onClick={() => setDensityKey('compact')}>Compact</DensityBtn>
               <DensityBtn $active={densityKey === 'default'}     onClick={() => setDensityKey('default')}>Default</DensityBtn>
               <DensityBtn $active={densityKey === 'comfortable'} onClick={() => setDensityKey('comfortable')}>Cozy</DensityBtn>
             </DensityToggle>
             <HeaderAuth data-tour="auth-btn-header">Sign Up / Log In</HeaderAuth>
-          </RightControls>
+          </HeaderRight>
         </Header>
 
-        {/* ── TAB BAR ── */}
+        {/* tab bar */}
         <TabBar $searched={searched}>
           <TabLinks>
             {TAB_ORDER.map(tab => (
@@ -1862,11 +1884,9 @@ const App = () => {
               </a>
             ))}
           </TabLinks>
-
-          
         </TabBar>
 
-        {/* ── BANNER ── */}
+        {/* banner */}
         <Banner $searched={searched}>
           <BannerEyebrow>Jungle</BannerEyebrow>
           <BannerTitle>Improvement Log</BannerTitle>
@@ -1907,7 +1927,7 @@ const App = () => {
           </FormPanel>
         </Banner>
 
-        {/* ── ALL SECTIONS — only mounted after search so banner never overlaps ── */}
+        {/* sections */}
         {searched && <>
 
           {/* OVERVIEW */}
@@ -1916,7 +1936,7 @@ const App = () => {
               <OverviewTableHeader>
                 <thead><tr>
                   <th>Match</th><th>Date</th><th>Patch</th><th>Rank</th>
-                  <th>LP</th><th>Champion</th><th>Result</th><th>Length</th>
+                  <th title="LP history is not available via Riot's API — manually tracked in production">LP *</th><th>Champion</th><th>Result</th><th>Length</th>
                 </tr></thead>
               </OverviewTableHeader>
               <TableBodyWrapper>
@@ -1936,6 +1956,9 @@ const App = () => {
                 </OverviewBodyTable>
               </TableBodyWrapper>
             </Table>
+            <div style={{ alignSelf: 'flex-start', fontSize: '0.62rem', color: 'rgba(248,250,252,0.28)', letterSpacing: '0.04em' }}>
+              * LP history is not available via Riot's API — manually tracked in production
+            </div>
           </Overview>
 
           {/* DETAILS */}
@@ -2245,18 +2268,16 @@ const App = () => {
 
         </>}
 
-        {/* ── GUIDED TOUR — floating button after search ── */}
+        {/* tour trigger */}
         {searched && !tourActive && (
           <TourStartBtn onClick={startTour}>◎ Reviewer Guide</TourStartBtn>
         )}
 
-        {/* ── GUIDED TOUR — overlay ── */}
+        {/* tour overlay */}
         {tourActive && (
           <TourOverlay $active>
-            {/* dimmer — clicking it closes the tour */}
             <TourDimmer $vis onClick={() => setTourActive(false)} />
 
-            {/* spotlight ring around the anchored element */}
             {bubblePos.spotRect && (
               <BubbleSpotlight style={{
                 top:    bubblePos.spotRect.top,
@@ -2266,7 +2287,6 @@ const App = () => {
               }} />
             )}
 
-            {/* bubble — centered when no anchor, otherwise fixed position; only render after position computed */}
             {(isCentered || bubblePos.top !== null) && (
               <Bubble style={isCentered
                 ? { top:'50%', left:'50%', transform:'translate(-50%,-50%)' }
@@ -2287,7 +2307,7 @@ const App = () => {
           </TourOverlay>
         )}
 
-        {/* ── DISCLAIMER ── */}
+        {/* disclaimer */}
         <Disclaimer>
           Jungle Improvement Log is not endorsed by Riot Games and does not reflect the views or opinions of Riot Games or anyone officially involved in producing or managing Riot Games properties. Riot Games and all associated properties are trademarks or registered trademarks of Riot Games, Inc.
         </Disclaimer>
