@@ -89,7 +89,7 @@ const MOCK_STATS = (() => {
 
 const MOCK_FOCUS_CYCLES = [
   { startdate:'2026-04-26', focus:'Reduce Deaths',    description:'Die fewer than 5 times per game on average. Prioritize safe pathing over contested objectives when behind.' },
-  { startdate:'2026-05-10', focus:'First Item Timing',description:'Complete first item before 13:00 in every game. Improve clear efficiency and skip unnecessary early ganks.' },
+  { startdate:'2026-05-10', focus:'First Item Timing',description:'Complete first item before 11:00 in every game. Improve clear efficiency and skip unnecessary early ganks.' },
   { startdate:'2026-05-24', focus:'Objective Control',description:'Secure at least 3 objectives (Dragon/Herald/Baron) per game. Pre-stack camps near objectives before timers.' },
   { startdate:'2026-06-07', focus:'— Not Set —',      description:'Current cycle — improvement focus not yet selected.' },
 ]
