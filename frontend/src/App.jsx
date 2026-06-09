@@ -159,7 +159,7 @@ const TOUR_STEPS = [
   {
     id: 'early-tempo',
     title: 'Early Tempo score',
-    text: 'A composite 10-min lead/deficit score: (0.35 × Gold Δ/800) + (0.3 × XP Δ/750) + (0.2 × CS Δ/15) + (0.15 × K+A Δ/3). Positive = ahead at 10 min. Color-coded cyan → green → yellow → red. This is one custom metric in a series of metrics that are planned for development to highlight fundamental aspects of gameplay, signaling strengths and weaknesses.',
+    text: 'A composite 10-min lead/deficit score: (0.35 × Gold Δ/800) + (0.3 × XP Δ/750) + (0.2 × CS Δ/15) + (0.15 × K+A Δ/3). Positive = ahead at 10 min. Color-coded cyan → green → yellow → red. This is one custom metric in a series of metrics that are planned for development to highlight fundamental aspects of gameplay, signaling strengths, weaknesses, and improvement priorities.',
     anchor: '[data-tour="col-early-tempo"]', side: 'below-center', tab: 'Details',
   },
   {
@@ -195,7 +195,7 @@ const TOUR_STEPS = [
   {
     id: 'api-note',
     title: 'How the API would be used',
-    text: "All API calls happen server-side — the key is never exposed to the frontend. Endpoints used: riot/account/v1 (summoner lookup), lol/summoner/v4 (summoner data), lol/league/v4 (current rank), lol/match/v5/matches (match data + timeline). Note: Riot's API does not expose per-game LP history, so the LP column is manually tracked. All metric calculations are computed server-side before the frontend receives any data.",
+    text: "All API calls would happen server-side — the key would never be exposed to the frontend. Endpoint usage: riot/account/v1 (summoner lookup), lol/summoner/v4 (summoner data), lol/league/v4 (current rank), lol/match/v5/matches (match data + timeline). Note: Riot's API does not expose per-game LP history, so the LP column is manually tracked. All metric calculations are computed server-side before the frontend receives any data.",
     anchor: null, side: 'center', tab: null,
   },
 ]
@@ -1762,18 +1762,25 @@ const App = () => {
     const s = TOUR_STEPS[prevStep]
     if (s.tab) setActiveTab(s.tab)
     setTourStep(prevStep)
-    // anchors inside sliding sections need to wait for the 650ms transition
-    const isStaticAnchor = !s.anchor
+    // Header/tabbar anchors are always in the DOM and can be measured immediately.
+    // Banner anchors (search-summoner-btn, auth-btn) fly in over 850ms and need
+    // to be measured after that transition settles.
+    // In-section anchors (e.g. col-early-tempo) slide in over 650ms.
+    const isHeaderAnchor = !s.anchor
       || s.anchor.includes('tab-')
       || s.anchor.includes('update-btn')
       || s.anchor.includes('density-toggle')
       || s.anchor.includes('header-stats')
-      || s.anchor.includes('search-summoner-btn')
-      || s.anchor.includes('auth-btn')
-    if (isStaticAnchor) {
+    const isBannerAnchor = s.anchor?.includes('search-summoner-btn')
+      || s.anchor?.includes('auth-btn')
+    if (isHeaderAnchor) {
       setTimeout(() => computePos(prevStep), 80)
       setTimeout(() => computePos(prevStep), 260)
+    } else if (isBannerAnchor) {
+      setTimeout(() => computePos(prevStep), 900)
+      setTimeout(() => computePos(prevStep), 1100)
     } else {
+      // in-section anchor — wait for 650ms slide transition
       setTimeout(() => computePos(prevStep), 700)
       setTimeout(() => computePos(prevStep), 900)
     }
