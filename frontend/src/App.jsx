@@ -3,6 +3,186 @@ import styled from 'styled-components'
 import axios from 'axios'
 import './App.css'
 
+/* ─── MOCK DATA (mockup only — remove when API is live) ──────────────────── */
+const _champions = ['Hecarim','Vi','Graves','Viego','Nidalee','Kindred',"Kha'Zix",'Elise','Rek\'Sai','Warwick','Amumu','Jarvan IV','Lee Sin','Diana']
+const _ranksList = ['Gold II','Gold I','Platinum IV','Platinum III','Platinum II']
+const _patches   = ['15.10','15.11','15.12']
+const _dates     = ['2026-05-14','2026-05-15','2026-05-16','2026-05-17','2026-05-18','2026-05-19','2026-05-20','2026-05-21','2026-05-22','2026-05-23','2026-05-24','2026-05-25','2026-05-26','2026-05-27','2026-05-28','2026-05-29','2026-05-30','2026-05-31','2026-06-01','2026-06-02']
+function _s(seed,a,b){let x=Math.sin(seed)*10000;x=x-Math.floor(x);return Math.floor(x*(b-a+1))+a}
+function _p(seed,arr){return arr[_s(seed,0,arr.length-1)]}
+function _computeEarlyTempo(gd,xd,cd,kad){return (0.35*(gd/800))+(0.3*(xd/750))+(0.2*(cd/15))+(0.15*(kad/3))}
+const _notesPool = [
+  'Lost tempo trying to contest scuttle at level 3.',
+  'Ganked mid twice but lane was already pushed — wasted time.',
+  'Good dragon steal secured two consecutive objectives.',
+  'Over-committed to a losing skirmish near Baron.',
+  'First item timing was on point — dictated early jungle pressure.',
+  'Pathed inefficiently; fell 600 gold behind by 10 minutes.',
+  'Converted Herald into two plates — strong macro game.',
+  'Poor ward placement left enemy jungler free to counter-jungle.',
+  'Calm and focused throughout — made the right concession plays.',
+  'Tilt spiral after two early deaths led to overforced plays.',
+]
+const _gpOpts = ['Good','Okay','Bad']
+const _mmOpts = ['Positioning','Late Reset','Emotional Play','Farm Path Error','Objective Fumble']
+const _mtOpts = ['Calm','Frustrated','Tilted']
+const _frOpts = ['Good','Okay','Bad']
+const MOCK_STATS = Array.from({length:20},(_,i)=>{
+  const s=i*7+13
+  const result=_s(s+1,0,9)>4?'Win':'Loss'
+  const kills=_s(s+2,1,10), deaths=_s(s+3,1,8), assists=_s(s+4,3,16)
+  const teamKills=kills+_s(s+5,4,16)
+  const kp=(kills+assists)/Math.max(teamKills,1)
+  const gold10=_s(s+6,3100,4400), enemyGold10=_s(s+7,3000,4300)
+  const xp10=_s(s+8,3800,5100),   enemyXp10=_s(s+9,3700,5000)
+  const cs10=_s(s+10,38,72),      enemyCs10=_s(s+11,36,70)
+  const ka10=_s(s+12,1,6),        enemyKa10=_s(s+13,1,6)
+  const cs=_s(s+14,140,260), vision=_s(s+15,18,52), dmg=_s(s+16,14000,38000)
+  const totalMins=_s(s+17,22,47), secs=_s(s+18,0,59)
+  const rank=_p(s+19,_ranksList), lpBase=_s(s+20,0,99)
+  const lpChange=result==='Win'?_s(s+21,14,22):-_s(s+21,14,22)
+  const gd=gold10-enemyGold10, xd=xp10-enemyXp10, cd=cs10-enemyCs10, kad=ka10-enemyKa10
+  return {
+    match:i+1, date:_dates[i], patch:_p(s+22,_patches), rank,
+    lp:lpBase, lp_change:lpChange, champion:_p(s+23,_champions),
+    result, length:`${totalMins}:${String(secs).padStart(2,'0')}`,
+    team_kills:teamKills, kills, deaths, assists, cs,
+    damage_dealt:dmg, vision_score:vision, kill_participation:kp,
+    obj_secured:_s(s+24,0,7),
+    first_item_timing:`${_s(s+25,9,17)}:${String(_s(s+26,0,59)).padStart(2,'0')}`,
+    gold_delta_10:gd, xp_delta_10:xd, cs_delta_10:cd, ka_delta_10:kad,
+    early_tempo:_computeEarlyTempo(gd,xd,cd,kad),
+    cs_per_min:(cs/totalMins).toFixed(2),
+    vision_per_min:(vision/totalMins).toFixed(2),
+    damage_per_min:Math.floor(dmg/totalMins),
+    gold_10:gold10, enemy_gold_10:enemyGold10,
+    xp_10:xp10, enemy_xp_10:enemyXp10,
+    cs_10:cs10, enemy_cs_10:enemyCs10,
+    ka_10:ka10, enemy_ka_10:enemyKa10,
+    gameplan_adherence:_p(s+27,_gpOpts),
+    major_mistake:_p(s+28,_mmOpts),
+    mental:_p(s+29,_mtOpts),
+    focus_rating:_p(s+30,_frOpts),
+    notes:_notesPool[_s(s+31,0,_notesPool.length-1)],
+  }
+})
+const MOCK_FOCUS_CYCLES = [
+  { startdate:'2026-04-26', focus:'Reduce Deaths',    description:'Die fewer than 5 times per game on average. Prioritize safe pathing over contested objectives when behind.' },
+  { startdate:'2026-05-10', focus:'First Item Timing',description:'Complete first item before 13:00 in every game. Improve clear efficiency and skip unnecessary early ganks.' },
+  { startdate:'2026-05-24', focus:'Objective Control',description:'Secure at least 3 objectives (Dragon/Herald/Baron) per game. Pre-stack camps near objectives before timers.' },
+  { startdate:'2026-06-07', focus:'— Not Set —',      description:'Current cycle — improvement focus not yet selected.' },
+]
+const MOCK_FOCUS_STATS = [
+  { concept:'Reduce Deaths',     winRate:'54%', veryGood:'22%', good:'35%', okay:'28%', bad:'15%' },
+  { concept:'First Item Timing', winRate:'61%', veryGood:'30%', good:'38%', okay:'22%', bad:'10%' },
+  { concept:'Objective Control', winRate:'58%', veryGood:'25%', good:'40%', okay:'25%', bad:'10%' },
+  { concept:'— Not Set —',       winRate:'44%', veryGood:'12%', good:'22%', okay:'28%', bad:'38%' },
+]
+
+/* ─── TOUR STEPS ─────────────────────────────────────────────────────────── */
+/* id:     unique identifier — 'do-search' triggers the auto-search
+   anchor: CSS selector for the element to spotlight (null = centered)
+   side:   'below-center' | 'below-right' | 'center'
+   tab:    switch active tab before showing step (null = no switch)           */
+const TOUR_STEPS = [
+  {
+    id: 'welcome',
+    title: 'Welcome — Reviewer Guide',
+    text: "Hi! This is an interactive walkthrough of the Jungle Improvement Log. It'll take you through every feature automatically — including loading real mock data. Use Next / Back to navigate, or click anywhere outside the bubble to exit.",
+    anchor: null, side: 'center', tab: null,
+  },
+  {
+    id: 'search-btn',
+    title: 'Search Summoner',
+    text: "Searches a summoner's past 20 matches and shows them instantly — no account required. In production this calls Riot's Match v5 API. Signed-in users get their past 30 matches searched and stored, with new matches appended on each update. No real API call is made in this mockup.",
+    anchor: '[data-tour="search-summoner-btn"]', side: 'below-center', tab: null,
+  },
+  {
+    id: 'auth-btn',
+    title: 'Sign Up / Log In',
+    text: "Creating an account unlocks stored match history (30 matches, updated on demand), the ability to save Review notes, and the Update button. Authentication is not currently functional — this is a mockup only. A backend with user accounts will be required before this goes live.",
+    anchor: '[data-tour="auth-btn"]', side: 'below-center', tab: null,
+  },
+  {
+    id: 'do-search',
+    title: 'Searching now…',
+    text: "Loading mock match data for 'JungleMain#NA1' — this simulates what happens when a summoner is searched. In production, this would call Riot's API and return the past 20 matches.",
+    anchor: '[data-tour="search-summoner-btn"]', side: 'below-center', tab: null,
+  },
+  {
+    id: 'header-stats',
+    title: 'Summoner & rank header',
+    text: 'After a search, this bar shows the Riot ID, region, current rank, LP, and the active bi-weekly improvement focus with a days-remaining countdown. It stays hidden until a summoner is loaded.',
+    anchor: '[data-tour="header-stats"]', side: 'below-center', tab: null,
+  },
+  {
+    id: 'update-btn',
+    title: 'Update Match History',
+    text: "Fetches and appends any new matches played since the last update. Disabled for guest searches — only signed-in users with stored match history can use this. Guests would need to re-search from scratch to refresh their data.",
+    anchor: '[data-tour="update-btn"]', side: 'below-right', tab: null,
+  },
+  {
+    id: 'density',
+    title: 'Density control',
+    text: 'Compact / Default / Cozy adjusts row padding and font size across all tabs simultaneously — useful for fitting more games on screen or improving readability.',
+    anchor: '[data-tour="density-toggle"]', side: 'below-right', tab: null,
+  },
+  {
+    id: 'tab-overview',
+    title: 'Overview tab',
+    text: 'A high-level match log: date, patch, rank, LP change, champion, win/loss, and game length. Win rows are tinted green, losses red. Rank cells reflect their tier colour.',
+    anchor: '[data-tour="tab-Overview"]', side: 'below-center', tab: 'Overview',
+  },
+  {
+    id: 'tab-details',
+    title: 'Details tab',
+    text: 'Per-match combat stats: KDA, team kill count, CS, damage dealt, vision score, kill participation %, objectives secured, first item timing, and the Early Tempo score.',
+    anchor: '[data-tour="tab-Details"]', side: 'below-center', tab: 'Details',
+  },
+  {
+    id: 'early-tempo',
+    title: 'Early Tempo score',
+    text: 'A composite 10-min lead/deficit score: (0.35 × Gold Δ/800) + (0.3 × XP Δ/750) + (0.2 × CS Δ/15) + (0.15 × K+A Δ/3). Positive = ahead at 10 min. Colour-coded cyan → green → yellow → red.',
+    anchor: '[data-tour="col-early-tempo"]', side: 'below-center', tab: 'Details',
+  },
+  {
+    id: 'tab-metrics',
+    title: 'Metrics tab',
+    text: 'Rate and differential metrics: CS/min, Vision/min, Damage/min, and 10-min gold, XP, CS, and K+A deltas vs the enemy jungler. Positive deltas green, negative red.',
+    anchor: '[data-tour="tab-Metrics"]', side: 'below-center', tab: 'Metrics',
+  },
+  {
+    id: 'tab-tempo',
+    title: 'Tempo tab',
+    text: 'Raw 10-minute snapshot values side by side — player vs enemy jungler — for Gold, XP, CS, and K+A. These are the direct inputs to the Early Tempo formula.',
+    anchor: '[data-tour="tab-Tempo"]', side: 'below-center', tab: 'Tempo',
+  },
+  {
+    id: 'tab-review',
+    title: 'Review tab',
+    text: 'Per-game review: Gameplan Adherence, Major Mistake, Mental State, Focus Rating, and free-text notes — all logged via colour-coded dropdowns. Entries are tied to a user account, so guests who have not signed up cannot save anything here.',
+    anchor: '[data-tour="tab-Review"]', side: 'below-center', tab: 'Review',
+  },
+  {
+    id: 'tab-weekly',
+    title: 'Weekly Summary tab',
+    text: 'KPI cards colour-coded against benchmarks, plus a per-week table covering games played, win rate, average deaths, objectives, good/bad tempo rates, tilt frequency, and LP progression.',
+    anchor: '[data-tour="tab-Weekly Summary"]', side: 'below-center', tab: 'Weekly Summary',
+  },
+  {
+    id: 'tab-focus',
+    title: 'Focus Cycles tab',
+    text: 'Every two weeks the player sets one improvement focus (e.g. "First Item Timing"). The stats table measures win rate and focus-rating distribution per concept — making it quantifiable whether the focus is helping.',
+    anchor: '[data-tour="tab-Focus Cycles"]', side: 'below-center', tab: 'Focus Cycles',
+  },
+  {
+    id: 'api-note',
+    title: 'How the API will be used',
+    text: "Post-game, the app calls Riot's Match v5 API to pull match data. All metric calculations happen server-side, keeping the API key secure. Review notes and focus cycles are stored per user account in a backend database — the frontend only receives processed, ready-to-display data.",
+    anchor: null, side: 'center', tab: null,
+  },
+]
+
 const DENSITY = {
   compact: {
     rowPadding: '4px 8px',
@@ -55,14 +235,6 @@ const RANKS = {
   Challenger:  { r: '246, 230, 142', rt: '246, 230, 142' },
 }
 
-/* ─── Layout constants ───────────────────────────────────────────────────────
-   HEADER_H  : height of the sticky header bar
-   TABBAR_H  : height of the tab bar below it
-   SECTION_TOP: where all tab sections start (header + tabbar + small gap)
-   TABLE_BODY_MAX: how tall the scrollable tbody can be before it scrolls
-   These are CSS custom properties so every styled-component can reference
-   them from a single source of truth.
-──────────────────────────────────────────────────────────────────────────── */
 const GlobalLayout = styled.div`
   --header-h: 56px;
   --tabbar-h: 48px;
@@ -87,7 +259,6 @@ const Container = styled.div`
   color: #f8fafc;
 `
 
-/* ─── HEADER ─────────────────────────────────────────────────────────────── */
 const Header = styled.div`
   position: fixed;
   top: 0;
@@ -106,7 +277,7 @@ const Header = styled.div`
   pointer-events: none;
   transition: opacity 0.45s ease;
   z-index: 20;
-  overflow: hidden;               /* never let it grow taller */
+  overflow: hidden;
 
   ${(p) => p.$searched && `
     opacity: 1;
@@ -159,8 +330,6 @@ const HeaderStatLbl = styled.span`
   white-space: nowrap;
 `
 
-/* Center group: scrolls horizontally on very small screens, but hides
-   overflow on the header so it stays a single line */
 const HeaderCenter = styled.div`
   flex: 1;
   display: flex;
@@ -170,7 +339,6 @@ const HeaderCenter = styled.div`
   min-width: 0;
   overflow: hidden;
 
-  /* below 900 px hide everything except the summoner + region stats */
   @media (max-width: 900px) {
     .hide-narrow { display: none; }
   }
@@ -197,7 +365,6 @@ const Legend = styled.div`
   @media (max-width: 1200px) { display: none; }
 `
 
-/* ─── TAB BAR ────────────────────────────────────────────────────────────── */
 const TabBar = styled.nav`
   position: fixed;
   top: var(--header-h);
@@ -229,6 +396,9 @@ const TabLinks = styled.div`
   align-items: center;
   gap: clamp(0.6rem, 1.4vw, 1.6rem);
   white-space: nowrap;
+  flex: 1 1 auto;
+  justify-content: center;
+  padding-left: 0;
 
   a {
     color: rgba(248, 250, 252, 0.6);
@@ -249,7 +419,9 @@ const TabLinks = styled.div`
     color: transparent;
     -webkit-text-fill-color: transparent;
     animation: gradientMove 5s ease-in-out infinite;
-    padding: 0.2rem 0.6rem;
+    display: inline-flex;
+    align-items: center;
+    padding: 0.28rem 0.72rem;
     border-radius: 999px;
     font-weight: 700;
     transform: translateY(-1px) scale(1.01);
@@ -265,6 +437,7 @@ const TabLinks = styled.div`
       background: rgba(248, 149, 56, 0.10);
       pointer-events: none;
     }
+    z-index: 30;
   }
 
   @keyframes gradientMove {
@@ -283,7 +456,7 @@ const DensityToggle = styled.div`
   border-radius: 999px;
   padding: 3px;
   flex-shrink: 0;
-  margin-left: auto;
+  margin-left: 0;
 `
 
 const DensityBtn = styled.button`
@@ -304,7 +477,6 @@ const DensityBtn = styled.button`
   &:hover { color: rgba(248, 250, 252, 0.8); }
 `
 
-/* ─── BANNER (landing) ────────────────────────────────────────────────────── */
 const Banner = styled.section`
   position: absolute;
   top: 50%;
@@ -325,6 +497,30 @@ const Banner = styled.section`
     opacity: 0;
     pointer-events: none;
   `}
+`
+
+const HeaderAuth = styled.button`
+  border: 1px solid rgba(159, 199, 199, 0.35);
+  cursor: pointer;
+  outline: none;
+  padding: 0.45rem 1rem;
+  border-radius: 999px;
+  font-size: 0.86rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  color: rgba(159, 199, 199, 0.95);
+  background: rgba(159, 199, 199, 0.06);
+  margin-left: auto;
+  margin-right: 8px;
+  flex-shrink: 0;
+  &:hover { background: rgba(159,199,199,0.12); }
+`
+
+const RightControls = styled.div`
+  display:flex;
+  align-items:center;
+  gap:8px;
+  margin-left: auto;
 `
 
 const BannerEyebrow = styled.p`
@@ -429,6 +625,62 @@ const ActionButton = styled.button`
   &:active { transform: translateY(0); }
 `
 
+const BannerButtonRow = styled.div`
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+`
+
+const AuthButton = styled.button`
+  border: 1px solid rgba(159, 199, 199, 0.35);
+  cursor: pointer;
+  outline: none;
+  padding: 0.9rem 2.4rem;
+  border-radius: 999px;
+  font-size: 1rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: rgba(159, 199, 199, 0.9);
+  background: rgba(159, 199, 199, 0.08);
+  backdrop-filter: blur(10px);
+  transition: transform 0.25s ease, box-shadow 0.25s ease, background 0.25s ease, border-color 0.25s ease;
+
+  &:hover {
+    transform: translateY(-2px);
+    border-color: rgba(159, 199, 199, 0.6);
+    box-shadow: 0 0 24px rgba(159, 199, 199, 0.2), 0 8px 32px rgba(0,0,0,0.3);
+    background: rgba(159, 199, 199, 0.14);
+  }
+  &:active { transform: translateY(0); }
+`
+
+const UpdateBtn = styled.button`
+  border: 1px solid rgba(248, 149, 56, 0.2);
+  border-radius: 999px;
+  padding: 4px 12px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  background: transparent;
+  color: #f2c96b;
+  background: rgba(248, 149, 56, 0.06);
+  cursor: not-allowed;
+  flex-shrink: 0;
+  white-space: nowrap;
+  opacity: 1;
+  margin-left: 6px;
+
+  &:disabled {
+    cursor: not-allowed;
+    color: #f2c96b;
+    background: rgba(248, 149, 56, 0.06);
+    border-color: rgba(248, 149, 56, 0.22);
+    opacity: 1;
+  }
+`
+
 const FormPanel = styled.div`
   width: 100%;
   display: flex;
@@ -501,15 +753,16 @@ const StyledSelect = styled.select`
   }
 `
 
+/* ─── ReviewSelect: driven by $val prop so color is always in sync ────────── */
 const ReviewSelect = styled.select`
   width: 100%;
   appearance: none;
   -webkit-appearance: none;
   text-align: center;
   background: ${(p) => {
-    if (p.value === 'Good' || p.value === 'Calm') return 'rgba(34, 197, 94, 0.8)'
-    if (p.value === 'Okay' || p.value === 'Frustrated') return 'rgba(234, 179, 8, 0.8)'
-    if (p.value === 'Bad' || p.value === 'Tilted') return 'rgba(239, 68, 68, 0.8)'
+    if (p.$val === 'Good' || p.$val === 'Calm') return 'rgba(34, 197, 94, 0.8)'
+    if (p.$val === 'Okay' || p.$val === 'Frustrated') return 'rgba(234, 179, 8, 0.8)'
+    if (p.$val === 'Bad'  || p.$val === 'Tilted') return 'rgba(239, 68, 68, 0.8)'
     return 'rgba(20, 26, 48, 0.8)'
   }};
   color: #f8fafc;
@@ -520,26 +773,21 @@ const ReviewSelect = styled.select`
   font-weight: 600;
   letter-spacing: 0.04em;
   cursor: pointer;
-  transition: all 0.28s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: background 0.18s ease;
 
-  &:hover { filter: brightness(0.82); border-color: rgba(255,255,255,0.18); }
+  &:hover { filter: brightness(0.85); border-color: rgba(255,255,255,0.18); }
   &:focus {
     outline: none;
-    filter: brightness(0.82);
+    filter: brightness(0.85);
     box-shadow: 0 0 0 3px ${(p) => {
-      if (p.value === 'Good' || p.value === 'Calm') return 'rgba(34, 197, 94, 0.35)'
-      if (p.value === 'Okay' || p.value === 'Frustrated') return 'rgba(234, 179, 8, 0.35)'
-      if (p.value === 'Bad' || p.value === 'Tilted') return 'rgba(239, 68, 68, 0.35)'
+      if (p.$val === 'Good' || p.$val === 'Calm') return 'rgba(34, 197, 94, 0.35)'
+      if (p.$val === 'Okay' || p.$val === 'Frustrated') return 'rgba(234, 179, 8, 0.35)'
+      if (p.$val === 'Bad'  || p.$val === 'Tilted') return 'rgba(239, 68, 68, 0.35)'
       return 'rgba(248, 85, 56, 0.35)'
     }};
   }
 
-  option[value="Good"]        { background-color: #15803d; color: #f0fdf4; }
-  option[value="Okay"]        { background-color: #a16207; color: #fefce8; }
-  option[value="Bad"]         { background-color: #b91c1c; color: #fef2f2; }
-  option[value="Calm"]        { background-color: #15803d; color: #f0fdf4; }
-  option[value="Frustrated"]  { background-color: #a16207; color: #fefce8; }
-  option[value="Tilted"]      { background-color: #b91c1c; color: #fef2f2; }
+  option { background: #1a1a2e; color: #f8fafc; }
 `
 
 const ReviewNotes = styled.div`
@@ -613,7 +861,6 @@ const SearchButton = styled.button`
   }
 `
 
-/* ─── SHARED TABLE PRIMITIVES ────────────────────────────────────────────── */
 const Table = styled.div`
   width: 100%;
   background: rgba(6, 8, 14, 0.7);
@@ -623,8 +870,6 @@ const Table = styled.div`
   box-shadow: rgba(2, 6, 23, 0.45) 0px 6px 30px;
 `
 
-/* Scrollable tbody container.
-   max-height is relative to viewport minus the fixed chrome above. */
 const TableBodyWrapper = styled.div`
   max-height: var(--table-body-max, calc(100vh - 260px));
   overflow-y: auto;
@@ -634,7 +879,6 @@ const TableBodyWrapper = styled.div`
   &::-webkit-scrollbar { display: none; }
 `
 
-/* Shared sticky header table */
 const sharedHeaderTh = `
   padding: 0.75rem 0.5rem;
   text-align: center;
@@ -648,7 +892,7 @@ const sharedHeaderTh = `
   border-right: none;
   border-left: none;
   background-clip: padding-box;
-  white-space: nowrap;          /* never wrap header text */
+  white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 `
@@ -668,7 +912,7 @@ const sharedBodyTd = (d) => `
 const ResultRow = styled.tr`
   border-radius: 10px;
   td:first-child {
-    border-left: 3px solid ${p => 
+    border-left: 3px solid ${p =>
       p.$result === 'Win' ? 'rgba(20, 180, 90, 0.6)' :
       p.$result === 'Loss' ? 'rgba(200, 50, 50, 0.6)' :
       'transparent'
@@ -688,43 +932,6 @@ const ResultRow = styled.tr`
   }
 `
 
-/* ─── TAB SECTION BASE ────────────────────────────────────────────────────
-   All sections share the same base positioning.
-   top is driven by --section-top so it adapts if the chrome heights change.
-──────────────────────────────────────────────────────────────────────────── */
-const sectionBase = `
-  position: absolute;
-  top: var(--section-top, 112px);
-  left: 50%;
-  bottom: 1rem;
-  width: calc(100vw - 2rem);
-  max-width: calc(100vw - 2rem);
-  padding: 1.5rem clamp(0.75rem, 2vw, 2rem);
-  box-sizing: border-box;
-  text-align: center;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 1.5rem;
-  overflow: visible;
-  opacity: 0;
-  pointer-events: none;
-`
-
-/* Tab order for slide transitions:
-   Banner (off-screen-up when searched)
-   Overview  (index 0) – leftmost
-   Details   (index 1)
-   Metrics   (index 2)
-   Tempo     (index 3)
-   Review    (index 4)
-   Weekly Summary (index 5)
-   Focus Cycles   (index 6) – rightmost
-
-   Active tab  → translate(-50%, 0)
-   Tab to left → translate(calc(-50% - 100vw), 0)   (slides left, off screen)
-   Tab to right→ translate(calc(-50% + 100vw), 0)   (slides right, off screen)
-*/
 const TAB_ORDER = ['Overview','Details','Metrics','Tempo','Review','Weekly Summary','Focus Cycles']
 
 function slideCSS(myName, active, searched) {
@@ -736,39 +943,10 @@ function slideCSS(myName, active, searched) {
   return 'transform: translate(calc(-50% + 100vw), 0);'
 }
 
-/* ─── OVERVIEW ───────────────────────────────────────────────────────────── */
-const overviewCols = [
-  { w: '8%' }, { w: '14%' }, { w: '10%' }, { w: '16%' },
-  { w: '8%' }, { w: '14%' }, { w: '10%' }, { w: '10%' },
-]
-
-const Overview = styled.section`
-  ${sectionBase}
-  transition: transform 0.65s ease, opacity 0.85s ease;
-  ${(p) => slideCSS('Overview', p.$active, p.$searched)}
-`
-
-const OverviewTableHeader = styled.table`
-  width: 100%; border-collapse: collapse; table-layout: fixed;
-  border-radius: 12px 12px 0 0; overflow: hidden;
-  position: sticky; top: 0; z-index: 30;
-  th { ${sharedHeaderTh} }
-  ${overviewCols.map((c,i) => `th:nth-child(${i+1}) { width: ${c.w}; min-width: 60px; }`).join('\n')}
-  th:first-child { border-top-left-radius: 12px; }
-  th:last-child  { border-top-right-radius: 12px; }
-`
-
-const OverviewBodyTable = styled.table`
-  width: 100%; border-collapse: collapse; table-layout: fixed;
-  td { ${(p) => sharedBodyTd(p.$d)} }
-  ${overviewCols.map((c,i) => `td:nth-child(${i+1}) { width: ${c.w}; min-width: 60px; }`).join('\n')}
-  tbody tr:hover { background: rgba(255,255,255,0.04); }
-`
-
 const LPChange = styled.span`
   display: inline-block;
   margin-left: 0.35rem;
-  color: ${p => 
+  color: ${p =>
     p.$lpChange > 0 ? 'rgba(114, 255, 86, 0.7)' :
     p.$lpChange < 0 ? 'rgba(253, 57, 57, 0.7)' :
     'rgba(138, 138, 138, 0.7)'
@@ -777,7 +955,7 @@ const LPChange = styled.span`
 
 const MatchResult = styled.span`
   font-size: ${p => p.$d?.fontSize || '0.85rem'};
-  color: ${p => 
+  color: ${p =>
     p.$result === 'Win' ? 'rgba(114, 255, 86, 0.7)' :
     p.$result === 'Loss' ? 'rgba(253, 57, 57, 0.7)' :
     'rgba(138, 138, 138, 0.7)'
@@ -799,6 +977,50 @@ const Rank = styled.td`
   }};
 `
 
+/* ─── OVERVIEW ───────────────────────────────────────────────────────────── */
+const overviewCols = [
+  { w: '8%' }, { w: '14%' }, { w: '10%' }, { w: '16%' },
+  { w: '8%' }, { w: '14%' }, { w: '10%' }, { w: '10%' },
+]
+
+const Overview = styled.section`
+  position: absolute;
+  top: var(--section-top, 112px);
+  left: 50%;
+  bottom: 1rem;
+  width: calc(100vw - 2rem);
+  max-width: calc(100vw - 2rem);
+  padding: 1.5rem clamp(0.75rem, 2vw, 2rem);
+  box-sizing: border-box;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1.5rem;
+  overflow: visible;
+  opacity: 0;
+  pointer-events: none;
+  transition: transform 0.65s ease, opacity 0.85s ease;
+  ${(p) => slideCSS('Overview', p.$active, p.$searched)}
+`
+
+const OverviewTableHeader = styled.table`
+  width: 100%; border-collapse: collapse; table-layout: fixed;
+  border-radius: 12px 12px 0 0; overflow: hidden;
+  position: sticky; top: 0; z-index: 30;
+  th { ${sharedHeaderTh} }
+  ${overviewCols.map((c,i) => `th:nth-child(${i+1}) { width: ${c.w}; min-width: 60px; }`).join('\n')}
+  th:first-child { border-top-left-radius: 12px; }
+  th:last-child  { border-top-right-radius: 12px; }
+`
+
+const OverviewBodyTable = styled.table`
+  width: 100%; border-collapse: collapse; table-layout: fixed;
+  td { ${(p) => sharedBodyTd(p.$d)} }
+  ${overviewCols.map((c,i) => `td:nth-child(${i+1}) { width: ${c.w}; min-width: 60px; }`).join('\n')}
+  tbody tr:hover { background: rgba(255,255,255,0.04); }
+`
+
 /* ─── DETAILS ────────────────────────────────────────────────────────────── */
 const detailsCols = [
   { w: '5%' }, { w: '9%' }, { w: '9%' }, { w: '5%' }, { w: '6%' },
@@ -807,7 +1029,22 @@ const detailsCols = [
 ]
 
 const Details = styled.section`
-  ${sectionBase}
+  position: absolute;
+  top: var(--section-top, 112px);
+  left: 50%;
+  bottom: 1rem;
+  width: calc(100vw - 2rem);
+  max-width: calc(100vw - 2rem);
+  padding: 1.5rem clamp(0.75rem, 2vw, 2rem);
+  box-sizing: border-box;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1.5rem;
+  overflow: visible;
+  opacity: 0;
+  pointer-events: none;
   transition: transform 0.65s ease, opacity 0.85s ease;
   ${(p) => slideCSS('Details', p.$active, p.$searched)}
 `
@@ -836,7 +1073,22 @@ const metricsCols = [
 ]
 
 const Metrics = styled.section`
-  ${sectionBase}
+  position: absolute;
+  top: var(--section-top, 112px);
+  left: 50%;
+  bottom: 1rem;
+  width: calc(100vw - 2rem);
+  max-width: calc(100vw - 2rem);
+  padding: 1.5rem clamp(0.75rem, 2vw, 2rem);
+  box-sizing: border-box;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1.5rem;
+  overflow: visible;
+  opacity: 0;
+  pointer-events: none;
   transition: transform 0.65s ease, opacity 0.85s ease;
   ${(p) => slideCSS('Metrics', p.$active, p.$searched)}
 `
@@ -861,11 +1113,26 @@ const MetricsBodyTable = styled.table`
 /* ─── TEMPO ──────────────────────────────────────────────────────────────── */
 const tempoCols = [
   { w: '6%' }, { w: '9%' }, { w: '9%' }, { w: '11%' }, { w: '9%' },
-  { w: '10%' }, { w: '9%' }, { w: '10%' }, { w: '10%' }, { w: '12%' },  // adjusted - removed extra column (was 11 cols)
+  { w: '10%' }, { w: '9%' }, { w: '10%' }, { w: '10%' }, { w: '12%' },
 ]
 
 const Tempo = styled.section`
-  ${sectionBase}
+  position: absolute;
+  top: var(--section-top, 112px);
+  left: 50%;
+  bottom: 1rem;
+  width: calc(100vw - 2rem);
+  max-width: calc(100vw - 2rem);
+  padding: 1.5rem clamp(0.75rem, 2vw, 2rem);
+  box-sizing: border-box;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1.5rem;
+  overflow: visible;
+  opacity: 0;
+  pointer-events: none;
   transition: transform 0.65s ease, opacity 0.85s ease;
   ${(p) => slideCSS('Tempo', p.$active, p.$searched)}
 `
@@ -894,7 +1161,22 @@ const reviewCols = [
 ]
 
 const Review = styled.section`
-  ${sectionBase}
+  position: absolute;
+  top: var(--section-top, 112px);
+  left: 50%;
+  bottom: 1rem;
+  width: calc(100vw - 2rem);
+  max-width: calc(100vw - 2rem);
+  padding: 1.5rem clamp(0.75rem, 2vw, 2rem);
+  box-sizing: border-box;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1.5rem;
+  overflow: visible;
+  opacity: 0;
+  pointer-events: none;
   transition: transform 0.65s ease, opacity 0.85s ease;
   ${(p) => slideCSS('Review', p.$active, p.$searched)}
 `
@@ -920,8 +1202,23 @@ const ReviewBodyTable = styled.table`
 const weeklyCols = Array(13).fill({ w: '7.69%' })
 
 const WeeklySummary = styled.section`
-  ${sectionBase}
+  position: absolute;
+  top: var(--section-top, 112px);
+  left: 50%;
+  bottom: 1rem;
+  width: calc(100vw - 2rem);
+  max-width: calc(100vw - 2rem);
+  padding: 1.5rem clamp(0.75rem, 2vw, 2rem);
+  box-sizing: border-box;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
   justify-content: flex-start;
+  gap: 1.5rem;
+  overflow: visible;
+  opacity: 0;
+  pointer-events: none;
   transition: transform 0.65s ease, opacity 0.85s ease;
   ${(p) => slideCSS('Weekly Summary', p.$active, p.$searched)}
 `
@@ -943,11 +1240,10 @@ const WeeklySummaryBodyTable = styled.table`
   tbody tr:hover { background: rgba(255,255,255,0.04); }
 `
 
-/* KPI card row */
 const KpiRow = styled.div`
   width: 100%;
   display: flex;
-  flex-wrap: wrap;          /* wrap onto a second row if viewport is narrow */
+  flex-wrap: wrap;
   gap: 0.75rem;
   justify-content: center;
 `
@@ -958,7 +1254,6 @@ const CardHeader = styled.div`
   transition: font-size 0.25s ease;
 `
 
-/* Generic KPI card factory to remove the massive duplication */
 function makeKpiCard(getBg, getShadow, getBorder) {
   const Outer = styled.div`
     flex: 1 1 130px;
@@ -993,14 +1288,14 @@ function makeKpiCard(getBg, getShadow, getBorder) {
   return { Outer, Inner, Kpi }
 }
 
-const colorRed   = 'rgba(255, 0, 0, 0.22)'
-const colorYellow= 'rgba(255, 217, 0, 0.22)'
-const colorGreen = 'rgba(0, 255, 0, 0.22)'
-const colorCyan  = 'rgba(0, 255, 255, 0.22)'
-const shadowRed   = 'rgba(97, 1, 1, 0.45) 0px 6px 30px'
-const shadowYellow= 'rgba(161, 98, 7, 0.45) 0px 6px 30px'
-const shadowGreen = 'rgba(0, 97, 0, 0.45) 0px 6px 30px'
-const shadowCyan  = 'rgba(0, 97, 97, 0.45) 0px 6px 30px'
+const colorRed    = 'rgba(255, 0, 0, 0.22)'
+const colorYellow = 'rgba(255, 217, 0, 0.22)'
+const colorGreen  = 'rgba(0, 255, 0, 0.22)'
+const colorCyan   = 'rgba(0, 255, 255, 0.22)'
+const shadowRed    = 'rgba(97, 1, 1, 0.45) 0px 6px 30px'
+const shadowYellow = 'rgba(161, 98, 7, 0.45) 0px 6px 30px'
+const shadowGreen  = 'rgba(0, 97, 0, 0.45) 0px 6px 30px'
+const shadowCyan   = 'rgba(0, 97, 97, 0.45) 0px 6px 30px'
 const borderFor = (color) => `3px solid ${color}`
 
 const GamesPlayed = makeKpiCard(
@@ -1040,12 +1335,23 @@ const TiltGames = makeKpiCard(
 )
 
 /* ─── FOCUS CYCLES ───────────────────────────────────────────────────────── */
-/*  Layout: two equal-width tables side-by-side on the same row.
-    The ImprovementFocusStats sits below them (in normal flow), so there's
-    no hardcoded top offset and no overlap. */
 const FocusCyclesSection = styled.section`
-  ${sectionBase}
+  position: absolute;
+  top: var(--section-top, 112px);
+  left: 50%;
+  bottom: 1rem;
+  width: calc(100vw - 2rem);
+  max-width: calc(100vw - 2rem);
+  padding: 1.5rem clamp(0.75rem, 2vw, 2rem);
+  box-sizing: border-box;
+  text-align: center;
+  display: flex;
   flex-direction: column;
+  align-items: center;
+  gap: 1.5rem;
+  overflow: visible;
+  opacity: 0;
+  pointer-events: none;
   transition: transform 0.65s ease, opacity 0.85s ease;
   ${(p) => slideCSS('Focus Cycles', p.$active, p.$searched)}
 `
@@ -1055,7 +1361,6 @@ const FocusCyclesRow = styled.div`
   display: flex;
   gap: 1rem;
   align-items: flex-start;
-
   @media (max-width: 760px) { flex-direction: column; }
 `
 
@@ -1123,6 +1428,160 @@ const ImprovementFocusSelect = styled.select`
   }
 `
 
+/* ─── DISCLAIMER ─────────────────────────────────────────────────────────── */
+const Disclaimer = styled.div`
+  position: fixed;
+  bottom: 0; left: 0; width: 100%;
+  text-align: center;
+  font-size: 0.6rem;
+  color: rgba(248, 250, 252, 0.22);
+  padding: 4px 16px 6px;
+  background: rgba(24, 12, 12, 0.7);
+  border-top: 1px solid rgba(255, 255, 255, 0.04);
+  z-index: 100;
+  line-height: 1.5;
+`
+
+/* ─── SPEECH BUBBLE TOUR ─────────────────────────────────────────────────── */
+const TourOverlay = styled.div`
+  position: fixed; inset: 0; z-index: 200;
+  pointer-events: ${p => p.$active ? 'auto' : 'none'};
+`
+const TourDimmer = styled.div`
+  position: absolute; inset: 0;
+  background: rgba(0, 0, 0, 0.62);
+  transition: opacity 0.3s;
+  opacity: ${p => p.$vis ? 1 : 0};
+  pointer-events: ${p => p.$vis ? 'auto' : 'none'};
+`
+/* Spotlight ring that outlines the anchored element */
+const BubbleSpotlight = styled.div`
+  position: fixed;
+  border: 2px solid rgba(242, 201, 107, 0.7);
+  border-radius: 8px;
+  box-shadow: 0 0 0 4000px rgba(0,0,0,0.7), 0 0 32px rgba(242,201,107,0.48);
+  border: 3px solid rgba(242, 201, 107, 0.95);
+  border-radius: 999px;
+  backdrop-filter: brightness(1.18) saturate(1.05);
+  pointer-events: none;
+  transition: all 0.3s ease;
+  z-index: 201;
+`
+/* Bubble is position:fixed so it never moves with scroll */
+const Bubble = styled.div`
+  position: fixed;
+  background: rgba(14, 7, 6, 0.98);
+  border: 1px solid rgba(242, 201, 107, 0.4);
+  border-radius: 16px;
+  padding: 1.25rem 1.5rem;
+  width: 340px;
+  box-shadow: 0 8px 40px rgba(0,0,0,0.7), 0 0 0 1px rgba(242,201,107,0.08);
+  pointer-events: auto;
+  z-index: 202;
+`
+const BubbleTail = styled.div`
+  position: absolute; width: 0; height: 0;
+  ${p => p.$dir === 'up'   && 'top:-10px; left:50%; transform:translateX(-50%); border-left:10px solid transparent; border-right:10px solid transparent; border-bottom:10px solid rgba(242,201,107,0.5);'}
+  ${p => p.$dir === 'down' && 'bottom:-10px; left:50%; transform:translateX(-50%); border-left:10px solid transparent; border-right:10px solid transparent; border-top:10px solid rgba(242,201,107,0.5);'}
+  ${p => p.$dir === 'up-right' && 'top:-10px; right:24px; border-left:10px solid transparent; border-right:10px solid transparent; border-bottom:10px solid rgba(242,201,107,0.5);'}
+  ${p => p.$dir === 'none' && 'display:none;'}
+`
+const BubbleTitle = styled.div`font-size:0.82rem; font-weight:700; color:#f2c96b; letter-spacing:0.07em; text-transform:uppercase; margin-bottom:0.55rem;`
+const BubbleText  = styled.div`font-size:0.88rem; color:rgba(248,250,252,0.85); line-height:1.65;`
+const BubbleNav   = styled.div`display:flex; align-items:center; justify-content:space-between; margin-top:1.1rem;`
+const BubbleStep  = styled.div`font-size:0.72rem; color:rgba(248,250,252,0.32); letter-spacing:0.06em;`
+const BubbleBtnRow = styled.div`display:flex; gap:0.5rem;`
+const BubbleBtn   = styled.button`
+  border: 1px solid rgba(242,201,107,0.35);
+  background: rgba(242,201,107,0.09);
+  color: #f2c96b;
+  border-radius: 999px;
+  padding: 0.38rem 1.1rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  letter-spacing: 0.04em;
+  transition: background 0.18s, border-color 0.18s;
+  &:hover { background: rgba(242,201,107,0.2); border-color: rgba(242,201,107,0.6); }
+`
+
+/* Landing-page tour entry — shown on the banner before search */
+const LandingTourBtn = styled.button`
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border: 1px solid rgba(242, 201, 107, 0.5);
+  background: rgba(14, 7, 6, 0.85);
+  color: #f2c96b;
+  border-radius: 999px;
+  padding: 0.7rem 1.6rem;
+  font-size: 0.88rem;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  cursor: pointer;
+  backdrop-filter: blur(14px);
+  box-shadow: 0 0 28px rgba(242,201,107,0.18), 0 4px 20px rgba(0,0,0,0.5);
+  transition: background 0.22s, transform 0.22s, box-shadow 0.22s;
+  animation: tourPulse 2.8s ease-in-out infinite;
+
+  @keyframes tourPulse {
+    0%, 100% { box-shadow: 0 0 28px rgba(242,201,107,0.18), 0 4px 20px rgba(0,0,0,0.5); }
+    50%       { box-shadow: 0 0 44px rgba(242,201,107,0.42), 0 4px 28px rgba(0,0,0,0.6); }
+  }
+
+  &:hover {
+    background: rgba(242,201,107,0.14);
+    transform: translateY(-2px);
+    box-shadow: 0 0 52px rgba(242,201,107,0.5), 0 8px 32px rgba(0,0,0,0.55);
+    animation: none;
+  }
+
+  .tour-icon {
+    width: 28px; height: 28px;
+    border-radius: 50%;
+    background: rgba(242,201,107,0.15);
+    border: 1.5px solid rgba(242,201,107,0.5);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 0.85rem; flex-shrink: 0;
+  }
+
+  .tour-label { display: flex; flex-direction: column; gap: 1px; text-align: left; }
+  .tour-label-main { font-size: 0.88rem; font-weight: 700; color: #f2c96b; }
+  .tour-label-sub { font-size: 0.68rem; font-weight: 500; color: rgba(248,250,252,0.45); letter-spacing: 0.05em; text-transform: uppercase; }
+`
+
+/* Post-search floating tour button — smaller, bottom-right */
+const TourStartBtn = styled.button`
+  position: fixed; bottom: 36px; right: 24px; z-index: 150;
+  border: 1px solid rgba(242,201,107,0.4);
+  background: rgba(14,7,6,0.92);
+  color: #f2c96b;
+  border-radius: 999px;
+  padding: 0.5rem 1.2rem;
+  font-size: 0.76rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  cursor: pointer;
+  box-shadow: 0 4px 24px rgba(0,0,0,0.5);
+  backdrop-filter: blur(12px);
+  transition: background 0.2s, transform 0.2s;
+  &:hover { background: rgba(242,201,107,0.12); transform: translateY(-1px); }
+`
+
+/* ─── HELPERS ────────────────────────────────────────────────────────────── */
+function formatEarlyTempo(val) {
+  return `${val >= 0 ? '+' : ''}${(val * 100).toFixed(1)}%`
+}
+function earlyTempoColor(val) {
+  if (val > 0.15)  return 'rgba(0,255,255,0.85)'
+  if (val > 0.04)  return 'rgba(114,255,86,0.8)'
+  if (val > -0.05) return 'rgba(234,179,8,0.85)'
+  return 'rgba(253,57,57,0.8)'
+}
+function deltaColor(v) {
+  return v > 0 ? 'rgba(114,255,86,0.8)' : v < 0 ? 'rgba(253,57,57,0.8)' : 'rgba(248,250,252,0.5)'
+}
+
 /* ─── APP ────────────────────────────────────────────────────────────────── */
 const App = () => {
   const [showForm, setShowForm] = useState(false)
@@ -1130,10 +1589,29 @@ const App = () => {
   const [searchQuery, setSearchQuery] = useState('')
   const [searched, setSearched] = useState(false)
   const [activeTab, setActiveTab] = useState('Overview')
-  const [review, setReview] = useState({})
   const [densityKey, setDensityKey] = useState('default')
-  const [improvementFocus, setImprovementFocus] = useState({})
+  const [improvementFocus, setImprovementFocus] = useState({
+    '2026-04-26': 'Reduce Deaths',
+    '2026-05-10': 'First Item Timing',
+    '2026-05-24': 'Objective Control',
+    '2026-06-07': '',
+  })
   const [existingStats, setExistingStats] = useState([])
+
+  // review state — seeded from mock data on load, real API data when live
+  const [review, setReview] = useState(() => {
+    const seeded = {}
+    MOCK_STATS.forEach((row) => {
+      seeded[row.match] = {
+        'Gameplan Adherence': row.gameplan_adherence ?? '',
+        'Major Mistake':      row.major_mistake      ?? '',
+        'Mental':             row.mental             ?? '',
+        'Focus Rating':       row.focus_rating       ?? '',
+        'Notes':              row.notes              ?? '',
+      }
+    })
+    return seeded
+  })
 
   const d = DENSITY[densityKey]
 
@@ -1158,35 +1636,152 @@ const App = () => {
   const handleImprovementFocusChange = (e, startdate) => {
     setImprovementFocus(prev => ({ ...prev, [startdate]: e.target.value }))
   }
+
   const handleGetExistingStats = () => {
-    axios.get('http://localhost:8000/stats/get_stats/', 
-      { headers: { 'Content-Type': 'application/json' },
-      params: {
-        summoner_name: searchQuery,
-      }
+    // mockup: use MOCK_STATS directly instead of calling the API
+    setExistingStats(MOCK_STATS)
+    /* real implementation (restore when API is live):
+    axios.get('http://localhost:8000/stats/get_stats/', {
+      headers: { 'Content-Type': 'application/json' },
+      params: { summoner_name: searchQuery },
     }).then(response => {
-      setExistingStats(response.data.match_stats);
-    });
+      setExistingStats(response.data.match_stats)
+    })
+    */
   }
 
   useEffect(() => {
-    if (!existingStats?.length) return;
-
-    const seeded = {};
+    if (!existingStats?.length) return
+    const seeded = {}
     existingStats.forEach((row) => {
       seeded[row.match] = {
-        'Gameplan Adherence':       row['gameplan_adherence']       ?? '',
-        'Major Mistake':            row['major_mistake']            ?? '',
-        'Mental':                   row['mental']                   ?? '',
-        'Focus Rating':             row['focus_rating']             ?? '',
-        'Notes':                    row['notes']                    ?? '',
-      };
-    });
-
-  setReview(seeded);
-  }, [existingStats]);
+        'Gameplan Adherence': row['gameplan_adherence'] ?? '',
+        'Major Mistake':      row['major_mistake']      ?? '',
+        'Mental':             row['mental']             ?? '',
+        'Focus Rating':       row['focus_rating']       ?? '',
+        'Notes':              row['notes']              ?? '',
+      }
+    })
+    setReview(seeded)
+  }, [existingStats])
 
   useEffect(() => { console.log('existingStats:', existingStats) }, [existingStats])
+
+  // active focus name for header pill
+  const activeFocusEntry = Object.entries(improvementFocus).reverse().find(([, v]) => v && v !== '')
+  const activeFocusName = activeFocusEntry ? activeFocusEntry[1] : '— None —'
+
+  // ── TOUR ──────────────────────────────────────────────────────────────────
+  const [tourActive, setTourActive] = useState(false)
+  const [tourStep,   setTourStep]   = useState(0)
+  const [bubblePos,  setBubblePos]  = useState({ top: 0, left: 0, tailDir: 'none', spotRect: null })
+
+  const BUBBLE_W = 340
+  const GAP = 14  // px gap between anchor and bubble
+
+  const computePos = (stepIndex) => {
+    const s = TOUR_STEPS[stepIndex]
+    if (!s.anchor) {
+      setBubblePos({ top: null, left: null, tailDir: 'none', spotRect: null })
+      return
+    }
+    const el = document.querySelector(s.anchor)
+    if (!el) {
+      setBubblePos({ top: null, left: null, tailDir: 'none', spotRect: null })
+      return
+    }
+    const r = el.getBoundingClientRect()
+    const vw = window.innerWidth
+    const vh = window.innerHeight
+    // default spotlight padding
+    let spotRect = { top: r.top - 4, left: r.left - 4, width: r.width + 8, height: r.height + 8 }
+
+    // if targeting a tab link, expand horizontally and a bit vertically
+    if (s.anchor && s.anchor.includes('tab-')) {
+      // tabs are pill-shaped and can shift slightly when activated; expand more
+      spotRect = {
+        top: r.top - 8,
+        left: r.left - 14,
+        width: r.width + 28,
+        height: r.height + 14,
+      }
+    }
+
+    let top, left, tailDir
+
+    if (s.side === 'below-center') {
+      top = r.bottom + GAP
+      left = r.left + r.width / 2 - BUBBLE_W / 2
+      tailDir = 'up'
+    } else if (s.side === 'below-right') {
+      top = r.bottom + GAP
+      left = r.right - BUBBLE_W
+      tailDir = 'up-right'
+    } else if (s.side === 'above-center') {
+      // will be computed after we know bubble height — approximate 160px
+      top = r.top - GAP - 160
+      left = r.left + r.width / 2 - BUBBLE_W / 2
+      tailDir = 'down'
+    }
+
+    // clamp within viewport with padding
+    left = Math.max(12, Math.min(left, vw - BUBBLE_W - 12))
+    if (top + 200 > vh) top = r.top - GAP - 200
+    top = Math.max(68, top)
+
+    setBubblePos({ top, left, tailDir, spotRect })
+  }
+
+  const startTour = () => {
+    // reset to landing state so tour always starts from scratch
+    setSearched(false)
+    setSearchQuery('')
+    setShowForm(false)
+    setExistingStats([])
+    setActiveTab('Overview')
+    setTourStep(0)
+    setTourActive(true)
+    setBubblePos({ top: null, left: null, tailDir: 'none', spotRect: null })
+  }
+
+  const tourGo = (nextStep) => {
+    const s = TOUR_STEPS[nextStep]
+
+    // special: auto-search on behalf of the reviewer
+    if (s.id === 'do-search') {
+      setShowForm(true)
+      setSearchQuery('JungleMain#NA1')
+      // slight delay so the form appears, then trigger search
+      setTimeout(() => {
+        setSearched(true)
+        setExistingStats(MOCK_STATS)
+        setTourStep(nextStep)
+        // wait for banner fly-out + sections to mount before computing position
+        setTimeout(() => computePos(nextStep), 900)
+      }, 120)
+      return
+    }
+
+    if (s.tab) setActiveTab(s.tab)
+    setTourStep(nextStep)
+    // initial compute shortly after state change, then recompute after layout/animations settle
+    setTimeout(() => computePos(nextStep), 80)
+    setTimeout(() => computePos(nextStep), 260)
+  }
+
+  const tourNext = () => {
+    const nx = tourStep + 1
+    if (nx >= TOUR_STEPS.length) { setTourActive(false); return }
+    tourGo(nx)
+  }
+  const tourPrev = () => {
+    const pv = tourStep - 1
+    if (pv < 0) return
+    tourGo(pv)
+  }
+
+  const step = TOUR_STEPS[tourStep]
+  const isCentered = !step.anchor
 
   return (
     <GlobalLayout>
@@ -1195,7 +1790,10 @@ const App = () => {
         <Header $searched={searched}>
           <HeaderBrand>Jungle Improvement Log</HeaderBrand>
 
-          <HeaderCenter>
+
+          <HeaderCenter data-tour="header-stats">
+            <UpdateBtn data-tour="update-btn" disabled style={{ marginLeft: 160 }}>↻ Update</UpdateBtn>
+            <HeaderDivider />
             <HeaderStat>
               <HeaderStatVal>{searchQuery || '—'}</HeaderStatVal>
               <HeaderStatLbl>Summoner</HeaderStatLbl>
@@ -1207,7 +1805,7 @@ const App = () => {
             </HeaderStat>
             <HeaderDivider className="hide-narrow" />
             <HeaderStat className="hide-narrow">
-              <HeaderStatVal >Platinum IV</HeaderStatVal>
+              <HeaderStatVal>Platinum IV</HeaderStatVal>
               <HeaderStatLbl>Rank</HeaderStatLbl>
             </HeaderStat>
             <HeaderDivider className="hide-narrow" />
@@ -1221,7 +1819,7 @@ const App = () => {
                 <ImprovementFocusCD>
                   <span style={{ fontSize: '12px', color: '#f2c96b', opacity: 0.8 }}>◎</span>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '1px' }}>
-                    <span style={{ fontSize: '0.68rem', fontWeight: 700, color: '#f2c96b', letterSpacing: '0.04em' }}>First Item Timing</span>
+                    <span style={{ fontSize: '0.68rem', fontWeight: 700, color: '#f2c96b', letterSpacing: '0.04em' }}>{activeFocusName}</span>
                     <span style={{ fontSize: '0.58rem', color: 'rgba(248,250,252,0.38)', letterSpacing: '0.05em', textTransform: 'uppercase' }}>5 days remaining</span>
                   </div>
                 </ImprovementFocusCD>
@@ -1238,11 +1836,14 @@ const App = () => {
             </Legend>
           </HeaderCenter>
 
-          <DensityToggle>
-            <DensityBtn $active={densityKey === 'compact'}     onClick={() => setDensityKey('compact')}>Compact</DensityBtn>
-            <DensityBtn $active={densityKey === 'default'}     onClick={() => setDensityKey('default')}>Default</DensityBtn>
-            <DensityBtn $active={densityKey === 'comfortable'} onClick={() => setDensityKey('comfortable')}>Cozy</DensityBtn>
-          </DensityToggle>
+          <RightControls>
+            <DensityToggle data-tour="density-toggle">
+              <DensityBtn $active={densityKey === 'compact'}     onClick={() => setDensityKey('compact')}>Compact</DensityBtn>
+              <DensityBtn $active={densityKey === 'default'}     onClick={() => setDensityKey('default')}>Default</DensityBtn>
+              <DensityBtn $active={densityKey === 'comfortable'} onClick={() => setDensityKey('comfortable')}>Cozy</DensityBtn>
+            </DensityToggle>
+            <HeaderAuth data-tour="auth-btn-header">Sign Up / Log In</HeaderAuth>
+          </RightControls>
         </Header>
 
         {/* ── TAB BAR ── */}
@@ -1251,6 +1852,7 @@ const App = () => {
             {TAB_ORDER.map(tab => (
               <a
                 key={tab}
+                data-tour={`tab-${tab}`}
                 href={`#${tab.toLowerCase().replace(' ', '-')}`}
                 onClick={(e) => { e.preventDefault(); handleTabChange(tab) }}
                 data-active={activeTab === tab}
@@ -1260,6 +1862,8 @@ const App = () => {
               </a>
             ))}
           </TabLinks>
+
+          
         </TabBar>
 
         {/* ── BANNER ── */}
@@ -1270,9 +1874,17 @@ const App = () => {
           <BannerTagline>
             See exactly where your jungle is winning — and where it isn't. Set an <strong>improvement focus</strong> and track your progress over time with data-driven insights.
           </BannerTagline>
-          {!showForm && (
-            <ActionButton onClick={() => setShowForm(true)}>Search a summoner</ActionButton>
-          )}
+          <BannerButtonRow>
+            <ActionButton data-tour="search-summoner-btn" onClick={() => setShowForm(true)}>Search a summoner</ActionButton>
+            <AuthButton data-tour="auth-btn" onClick={() => {}}>Sign Up / Log In</AuthButton>
+          </BannerButtonRow>
+          <LandingTourBtn onClick={startTour}>
+            <div className="tour-icon">◎</div>
+            <div className="tour-label">
+              <span className="tour-label-main">Reviewer Guide</span>
+              <span className="tour-label-sub">Interactive walkthrough</span>
+            </div>
+          </LandingTourBtn>
           <FormPanel $visible={showForm}>
             <CombinedForm $visible={showForm}>
               <RegionUnit>
@@ -1289,305 +1901,397 @@ const App = () => {
               </SearchUnit>
               <Divider />
               <SearchButtonUnit>
-                <SearchButton onClick={() => { setSearched(true); handleGetExistingStats(); }}>Search</SearchButton>
+                <SearchButton onClick={() => { setSearched(true); handleGetExistingStats() }}>Search</SearchButton>
               </SearchButtonUnit>
             </CombinedForm>
           </FormPanel>
         </Banner>
 
-        {/* ── OVERVIEW ── */}
-        <Overview $searched={searched} $active={activeTab}>
-          <Table>
-            <OverviewTableHeader>
-              <thead><tr>
-                <th>Match</th><th>Date</th><th>Patch</th><th>Rank</th>
-                <th>LP</th><th>Champion</th><th>Result</th><th>Length</th>
-              </tr></thead>
-            </OverviewTableHeader>
-            <TableBodyWrapper>
-              <OverviewBodyTable $d={d}>
-                <tbody>
-                  {(existingStats ?? []).map(row => (
-                    <ResultRow key={row.match} $result={row.result}>
-                      <td>{row.match}</td><td>{row.date}</td><td>{row.patch}</td><Rank $rank={row.rank}>{row.rank}</Rank>
-                      <td>{row.lp} <LPChange $lpChange={row.lp_change}><strong>{row.lp_change !== null ? `(${row.lp_change})`: '(0)'}</strong></LPChange></td><td>{row.champion}</td><td><MatchResult $d={d} $result={row.result}><strong>{row.result.toUpperCase()}</strong></MatchResult></td><td>{row.length}</td>
-                    </ResultRow>
-                  ))}
-                </tbody>
-              </OverviewBodyTable>
-            </TableBodyWrapper>
-          </Table>
-        </Overview>
+        {/* ── ALL SECTIONS — only mounted after search so banner never overlaps ── */}
+        {searched && <>
 
-        {/* ── DETAILS ── */}
-        <Details $searched={searched} $active={activeTab}>
-          <Table>
-            <DetailsTableHeader>
-              <thead><tr>
-                <th>Match</th><th>Date</th><th>Team Kills</th><th>K</th>
-                <th>D</th><th>A</th><th>CS</th><th>Dmg Dealt</th>
-                <th>Vision</th><th>Kill Part%</th><th>Obj Secured</th>
-                <th>1st Item</th><th>Early Tempo</th>
-              </tr></thead>
-            </DetailsTableHeader>
-            <TableBodyWrapper>
-              <DetailsBodyTable $d={d}>
-                <tbody>
-                  {(existingStats ?? []).map(row => (
-                    <ResultRow key={row.match} $result={row.result}>
-                      <td>{row.match}</td><td>{row.date}</td><td>{row.team_kills}</td><td>{row.kills}</td><td>{row.deaths}</td>
-                      <td>{row.assists}</td><td>{row.cs}</td><td>{row.damage_dealt}</td><td>{row.vision_score}</td><td>{(row.kill_participation*100).toFixed(2)}%</td>
-                      <td>{row.obj_secured}</td><td>{row.first_item_timing}</td><td>{row.early_tempo}</td>
-                    </ResultRow>
-                  ))}
-                </tbody>
-              </DetailsBodyTable>
-            </TableBodyWrapper>
-          </Table>
-        </Details>
+          {/* OVERVIEW */}
+          <Overview $searched={searched} $active={activeTab}>
+            <Table>
+              <OverviewTableHeader>
+                <thead><tr>
+                  <th>Match</th><th>Date</th><th>Patch</th><th>Rank</th>
+                  <th>LP</th><th>Champion</th><th>Result</th><th>Length</th>
+                </tr></thead>
+              </OverviewTableHeader>
+              <TableBodyWrapper>
+                <OverviewBodyTable $d={d}>
+                  <tbody>
+                    {(existingStats ?? []).map(row => (
+                      <ResultRow key={row.match} $result={row.result}>
+                        <td>{row.match}</td><td>{row.date}</td><td>{row.patch}</td>
+                        <Rank $rank={row.rank}>{row.rank}</Rank>
+                        <td>{row.lp} <LPChange $lpChange={row.lp_change}><strong>{row.lp_change !== null ? `(${row.lp_change > 0 ? '+' : ''}${row.lp_change})` : '(0)'}</strong></LPChange></td>
+                        <td>{row.champion}</td>
+                        <td><MatchResult $d={d} $result={row.result}><strong>{row.result.toUpperCase()}</strong></MatchResult></td>
+                        <td>{row.length}</td>
+                      </ResultRow>
+                    ))}
+                  </tbody>
+                </OverviewBodyTable>
+              </TableBodyWrapper>
+            </Table>
+          </Overview>
 
-        {/* ── METRICS ── */}
-        <Metrics $searched={searched} $active={activeTab}>
-          <Table>
-            <MetricsTableHeader>
-              <thead><tr>
-                <th>Match</th><th>Date</th><th>CS/min</th><th>Vis/min</th>
-                <th>Dmg/min</th><th>Gold Δ@10</th><th>XP Δ@10</th>
-                <th>CS Δ@10</th><th>K+A Δ@10</th>
-              </tr></thead>
-            </MetricsTableHeader>
-            <TableBodyWrapper>
-              <MetricsBodyTable $d={d}>
-                <tbody>
-                  {(existingStats ?? []).map(row => (
-                    <ResultRow key={row.match} $result={row.result}>
-                      <td>{row.match}</td><td>{row.date}</td><td>{row.cs_per_min}</td><td>{row.vision_per_min}</td><td>{row.damage_per_min}</td>
-                      <td>{row.gold_delta_10}</td><td>{row.xp_delta_10}</td><td>{row.cs_delta_10}</td><td>{row.ka_delta_10}</td>
-                    </ResultRow>
-                  ))}
-                </tbody>
-              </MetricsBodyTable>
-            </TableBodyWrapper>
-          </Table>
-        </Metrics>
+          {/* DETAILS */}
+          <Details $searched={searched} $active={activeTab}>
+            <Table>
+              <DetailsTableHeader>
+                <thead><tr>
+                  <th>Match</th><th>Date</th><th>Team Kills</th><th>K</th>
+                  <th>D</th><th>A</th><th>CS</th><th>Dmg Dealt</th>
+                  <th>Vision</th><th>Kill Part%</th><th>Obj Secured</th>
+                  <th>1st Item</th><th data-tour="col-early-tempo">Early Tempo</th>
+                </tr></thead>
+              </DetailsTableHeader>
+              <TableBodyWrapper>
+                <DetailsBodyTable $d={d}>
+                  <tbody>
+                    {(existingStats ?? []).map(row => (
+                      <ResultRow key={row.match} $result={row.result}>
+                        <td>{row.match}</td><td>{row.date}</td><td>{row.team_kills}</td>
+                        <td>{row.kills}</td><td>{row.deaths}</td><td>{row.assists}</td>
+                        <td>{row.cs}</td><td>{row.damage_dealt.toLocaleString()}</td>
+                        <td>{row.vision_score}</td>
+                        <td>{(row.kill_participation * 100).toFixed(1)}%</td>
+                        <td>{row.obj_secured}</td>
+                        <td>{row.first_item_timing}</td>
+                        <td style={{ color: earlyTempoColor(row.early_tempo), fontWeight: 600 }}>
+                          {formatEarlyTempo(row.early_tempo)}
+                        </td>
+                      </ResultRow>
+                    ))}
+                  </tbody>
+                </DetailsBodyTable>
+              </TableBodyWrapper>
+            </Table>
+          </Details>
 
-        {/* ── TEMPO ── */}
-        <Tempo $searched={searched} $active={activeTab}>
-          <Table>
-            <TempoTableHeader>
-              <thead><tr>
-                <th>Match</th><th>Date</th><th>Gold@10</th><th>Enemy Gold@10</th>
-                <th>EXP@10</th><th>Enemy EXP@10</th><th>CS@10</th>
-                <th>Enemy CS@10</th><th>K+A@10</th><th>Enemy K+A@10</th>
-              </tr></thead>
-            </TempoTableHeader>
-            <TableBodyWrapper>
-              <TempoBodyTable $d={d}>
-                <tbody>
-                  {(existingStats ?? []).map(row => (
-                    <ResultRow key={row.match} $result={row.result}>
-                      <td>{row.match}</td><td>{row.date}</td><td>{row.gold_10}</td><td>{row.enemy_gold_10}</td><td>{row.xp_10}</td>
-                      <td>{row.enemy_xp_10}</td><td>{row.cs_10}</td><td>{row.enemy_cs_10}</td><td>{row.ka_10}</td><td>{row.enemy_ka_10}</td>
-                    </ResultRow>
-                  ))}
-                </tbody>
-              </TempoBodyTable>
-            </TableBodyWrapper>
-          </Table>
-        </Tempo>
+          {/* METRICS */}
+          <Metrics $searched={searched} $active={activeTab}>
+            <Table>
+              <MetricsTableHeader>
+                <thead><tr>
+                  <th>Match</th><th>Date</th><th>CS/min</th><th>Vis/min</th>
+                  <th>Dmg/min</th><th>Gold Δ@10</th><th>XP Δ@10</th>
+                  <th>CS Δ@10</th><th>K+A Δ@10</th>
+                </tr></thead>
+              </MetricsTableHeader>
+              <TableBodyWrapper>
+                <MetricsBodyTable $d={d}>
+                  <tbody>
+                    {(existingStats ?? []).map(row => (
+                      <ResultRow key={row.match} $result={row.result}>
+                        <td>{row.match}</td><td>{row.date}</td>
+                        <td>{row.cs_per_min}</td><td>{row.vision_per_min}</td>
+                        <td>{row.damage_per_min.toLocaleString()}</td>
+                        <td style={{ color: deltaColor(row.gold_delta_10) }}>{row.gold_delta_10 > 0 ? '+' : ''}{row.gold_delta_10}</td>
+                        <td style={{ color: deltaColor(row.xp_delta_10) }}>{row.xp_delta_10 > 0 ? '+' : ''}{row.xp_delta_10}</td>
+                        <td style={{ color: deltaColor(row.cs_delta_10) }}>{row.cs_delta_10 > 0 ? '+' : ''}{row.cs_delta_10}</td>
+                        <td style={{ color: deltaColor(row.ka_delta_10) }}>{row.ka_delta_10 > 0 ? '+' : ''}{row.ka_delta_10}</td>
+                      </ResultRow>
+                    ))}
+                  </tbody>
+                </MetricsBodyTable>
+              </TableBodyWrapper>
+            </Table>
+          </Metrics>
 
-        {/* ── REVIEW ── */}
-        <Review $searched={searched} $active={activeTab}>
-          <Table>
-            <ReviewTableHeader>
-              <thead><tr>
-                <th>Match</th><th>Date</th><th>Gameplan Adherence</th><th>Major Mistake</th>
-                <th>Mental</th><th>Focus Rating</th><th>Notes</th>
-              </tr></thead>
-            </ReviewTableHeader>
-            <TableBodyWrapper>
-              <ReviewBodyTable $d={d}>
-                <tbody>
-                  {(existingStats ?? []).map(row => (
-                    <ResultRow key={row.match} $result={row.result}>
-                      <td>{row.match}</td>
-                      <td>{row.date}</td>
-                      <td>
-                        <ReviewSelect $d={d} aria-label="Gameplan Adherence" value={review[row.match]?.['Gameplan Adherence'] || ''} onChange={(e) => handleReviewChange(e, row.match, 'Gameplan Adherence')}>
-                          <option value="" disabled hidden>--</option>
-                          <option value="Good">Good</option><option value="Okay">Okay</option><option value="Bad">Bad</option>
-                        </ReviewSelect>
-                      </td>
-                      <td>
-                        <ReviewSelect $d={d} aria-label="Major Mistake" value={review[row.match]?.['Major Mistake'] || ''} onChange={(e) => handleReviewChange(e, row.match, 'Major Mistake')}>
-                          <option value="" disabled hidden>--</option>
-                          <option value="Positioning">Positioning</option>
-                          <option value="Late Reset">Late Reset</option>
-                          <option value="Emotional Play">Emotional Play</option>
-                        </ReviewSelect>
-                      </td>
-                      <td>
-                        <ReviewSelect $d={d} aria-label="Mental" value={review[row.match]?.['Mental'] || ''} onChange={(e) => handleReviewChange(e, row.match, 'Mental')}>
-                          <option value="" disabled hidden>--</option>
-                          <option value="Calm">Calm</option><option value="Frustrated">Frustrated</option><option value="Tilted">Tilted</option>
-                        </ReviewSelect>
-                      </td>
-                      <td>
-                        <ReviewSelect $d={d} aria-label="Focus Rating" value={review[row.match]?.['Focus Rating'] || ''} onChange={(e) => handleReviewChange(e, row.match, 'Focus Rating')}>
-                          <option value="" disabled hidden>--</option>
-                          <option value="Good">Good</option><option value="Okay">Okay</option><option value="Bad">Bad</option>
-                        </ReviewSelect>
-                      </td>
-                      <td>
-                        <ReviewNotes $d={d}>
-                          <textarea className="form-control" placeholder={notesPlaceholderText} aria-label={notesPlaceholderText}
-                            value={review[row.match]?.['Notes'] ?? ''} onChange={(e) => handleReviewChange(e, row.match, 'Notes')} />
-                        </ReviewNotes>
-                      </td>
-                    </ResultRow>
-                  ))}
-                </tbody>
-              </ReviewBodyTable>
-            </TableBodyWrapper>
-          </Table>
-        </Review>
+          {/* TEMPO */}
+          <Tempo $searched={searched} $active={activeTab}>
+            <Table>
+              <TempoTableHeader>
+                <thead><tr>
+                  <th>Match</th><th>Date</th><th>Gold@10</th><th>Enemy Gold@10</th>
+                  <th>EXP@10</th><th>Enemy EXP@10</th><th>CS@10</th>
+                  <th>Enemy CS@10</th><th>K+A@10</th><th>Enemy K+A@10</th>
+                </tr></thead>
+              </TempoTableHeader>
+              <TableBodyWrapper>
+                <TempoBodyTable $d={d}>
+                  <tbody>
+                    {(existingStats ?? []).map(row => (
+                      <ResultRow key={row.match} $result={row.result}>
+                        <td>{row.match}</td><td>{row.date}</td>
+                        <td>{row.gold_10}</td><td>{row.enemy_gold_10}</td>
+                        <td>{row.xp_10}</td><td>{row.enemy_xp_10}</td>
+                        <td>{row.cs_10}</td><td>{row.enemy_cs_10}</td>
+                        <td>{row.ka_10}</td><td>{row.enemy_ka_10}</td>
+                      </ResultRow>
+                    ))}
+                  </tbody>
+                </TempoBodyTable>
+              </TableBodyWrapper>
+            </Table>
+          </Tempo>
 
-        {/* ── WEEKLY SUMMARY ── */}
-        <WeeklySummary $searched={searched} $active={activeTab}>
-          <KpiRow>
-            {/* Games Played */}
-            <GamesPlayed.Outer value={9} $d={d}>
-              <GamesPlayed.Inner value={9} $d={d}>
-                <CardHeader $d={d}>Games Played</CardHeader>
-                <p style={{ margin: '4px 0', fontSize: d?.cardFontSize }}>9</p>
-                <GamesPlayed.Kpi $d={d}>Between 15–25</GamesPlayed.Kpi>
-              </GamesPlayed.Inner>
-            </GamesPlayed.Outer>
-            {/* Win Rate */}
-            <WinRate.Outer value={0.52} $d={d}>
-              <WinRate.Inner value={0.52} $d={d}>
-                <CardHeader $d={d}>Win Rate</CardHeader>
-                <p style={{ margin: '4px 0', fontSize: d?.cardFontSize }}>52%</p>
-                <WinRate.Kpi $d={d}>&gt; 52%</WinRate.Kpi>
-              </WinRate.Inner>
-            </WinRate.Outer>
-            {/* Avg Deaths */}
-            <AvgDeaths.Outer value={4} $d={d}>
-              <AvgDeaths.Inner value={4} $d={d}>
-                <CardHeader $d={d}>Avg Deaths</CardHeader>
-                <p style={{ margin: '4px 0', fontSize: d?.cardFontSize }}>4</p>
-                <AvgDeaths.Kpi $d={d}>&lt; 5</AvgDeaths.Kpi>
-              </AvgDeaths.Inner>
-            </AvgDeaths.Outer>
-            {/* Avg Obj */}
-            <AvgObj.Outer value={5} $d={d}>
-              <AvgObj.Inner value={5} $d={d}>
-                <CardHeader $d={d}>Avg Objectives</CardHeader>
-                <p style={{ margin: '4px 0', fontSize: d?.cardFontSize }}>5</p>
-                <AvgObj.Kpi $d={d}>3 or more</AvgObj.Kpi>
-              </AvgObj.Inner>
-            </AvgObj.Outer>
-            {/* Good Tempo */}
-            <GoodTempo.Outer value={0.45} $d={d}>
-              <GoodTempo.Inner value={0.45} $d={d}>
-                <CardHeader $d={d}>Good Tempo</CardHeader>
-                <p style={{ margin: '4px 0', fontSize: d?.cardFontSize }}>45%</p>
-                <GoodTempo.Kpi $d={d}>&gt; 50%</GoodTempo.Kpi>
-              </GoodTempo.Inner>
-            </GoodTempo.Outer>
-            {/* Bad Tempo */}
-            <BadTempo.Outer value={0.04} $d={d}>
-              <BadTempo.Inner value={0.04} $d={d}>
-                <CardHeader $d={d}>Bad Tempo</CardHeader>
-                <p style={{ margin: '4px 0', fontSize: d?.cardFontSize }}>4%</p>
-                <BadTempo.Kpi $d={d}>&lt; 20%</BadTempo.Kpi>
-              </BadTempo.Inner>
-            </BadTempo.Outer>
-            {/* Tilt Games */}
-            <TiltGames.Outer value={0.04} $d={d}>
-              <TiltGames.Inner value={0.04} $d={d}>
-                <CardHeader $d={d}>Tilt Games</CardHeader>
-                <p style={{ margin: '4px 0', fontSize: d?.cardFontSize }}>4%</p>
-                <TiltGames.Kpi $d={d}>&lt; 15%</TiltGames.Kpi>
-              </TiltGames.Inner>
-            </TiltGames.Outer>
-          </KpiRow>
+          {/* REVIEW */}
+          <Review $searched={searched} $active={activeTab}>
+            <Table>
+              <ReviewTableHeader>
+                <thead><tr>
+                  <th>Match</th><th>Date</th><th>Gameplan Adherence</th><th>Major Mistake</th>
+                  <th>Mental</th><th>Focus Rating</th><th>Notes</th>
+                </tr></thead>
+              </ReviewTableHeader>
+              <TableBodyWrapper>
+                <ReviewBodyTable $d={d}>
+                  <tbody>
+                    {(existingStats ?? []).map(row => (
+                      <ResultRow key={row.match} $result={row.result}>
+                        <td>{row.match}</td>
+                        <td>{row.date}</td>
+                        <td>
+                          <ReviewSelect $d={d} $val={review[row.match]?.['Gameplan Adherence'] || ''} aria-label="Gameplan Adherence"
+                            value={review[row.match]?.['Gameplan Adherence'] || ''}
+                            onChange={(e) => handleReviewChange(e, row.match, 'Gameplan Adherence')}>
+                            <option value="" disabled hidden>--</option>
+                            <option value="Good">Good</option><option value="Okay">Okay</option><option value="Bad">Bad</option>
+                          </ReviewSelect>
+                        </td>
+                        <td>
+                          <ReviewSelect $d={d} $val="neutral" aria-label="Major Mistake"
+                            value={review[row.match]?.['Major Mistake'] || ''}
+                            onChange={(e) => handleReviewChange(e, row.match, 'Major Mistake')}>
+                            <option value="" disabled hidden>--</option>
+                            <option value="Positioning">Positioning</option>
+                            <option value="Late Reset">Late Reset</option>
+                            <option value="Emotional Play">Emotional Play</option>
+                            <option value="Farm Path Error">Farm Path Error</option>
+                            <option value="Objective Fumble">Objective Fumble</option>
+                          </ReviewSelect>
+                        </td>
+                        <td>
+                          <ReviewSelect $d={d} $val={review[row.match]?.['Mental'] || ''} aria-label="Mental"
+                            value={review[row.match]?.['Mental'] || ''}
+                            onChange={(e) => handleReviewChange(e, row.match, 'Mental')}>
+                            <option value="" disabled hidden>--</option>
+                            <option value="Calm">Calm</option><option value="Frustrated">Frustrated</option><option value="Tilted">Tilted</option>
+                          </ReviewSelect>
+                        </td>
+                        <td>
+                          <ReviewSelect $d={d} $val={review[row.match]?.['Focus Rating'] || ''} aria-label="Focus Rating"
+                            value={review[row.match]?.['Focus Rating'] || ''}
+                            onChange={(e) => handleReviewChange(e, row.match, 'Focus Rating')}>
+                            <option value="" disabled hidden>--</option>
+                            <option value="Good">Good</option><option value="Okay">Okay</option><option value="Bad">Bad</option>
+                          </ReviewSelect>
+                        </td>
+                        <td>
+                          <ReviewNotes $d={d}>
+                            <textarea className="form-control" placeholder={notesPlaceholderText} aria-label={notesPlaceholderText}
+                              value={review[row.match]?.['Notes'] ?? ''}
+                              onChange={(e) => handleReviewChange(e, row.match, 'Notes')} />
+                          </ReviewNotes>
+                        </td>
+                      </ResultRow>
+                    ))}
+                  </tbody>
+                </ReviewBodyTable>
+              </TableBodyWrapper>
+            </Table>
+          </Review>
 
-          <Table>
-            <WeeklySummaryTableHeader>
-              <thead><tr>
-                <th>Week</th><th>Games</th><th>Win%</th>
-                <th>Avg Deaths</th><th>Avg Obj</th><th>Good Tempo</th>
-                <th>Bad Tempo</th><th>Tilt%</th><th>Start Rank</th><th>Start LP</th>
-                <th>End Rank</th><th>End LP</th><th>LP Δ</th>
-              </tr></thead>
-            </WeeklySummaryTableHeader>
-            <TableBodyWrapper>
-              <WeeklySummaryBodyTable $d={d}>
-                <tbody>
-                  {[1,2,3].map(n => (
-                    <tr key={n}>
-                      <td>{n}</td><td>41</td><td>58.54%</td><td>4.95</td>
-                      <td>4.07</td><td>63.41%</td><td>9.76%</td><td>9.76%</td>
-                      <td>Gold II</td><td>34</td><td>Plat IV</td><td>48</td><td>+214</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </WeeklySummaryBodyTable>
-            </TableBodyWrapper>
-          </Table>
-        </WeeklySummary>
+          {/* WEEKLY SUMMARY */}
+          <WeeklySummary $searched={searched} $active={activeTab}>
+            <KpiRow>
+              <GamesPlayed.Outer value={9} $d={d}>
+                <GamesPlayed.Inner value={9} $d={d}>
+                  <CardHeader $d={d}>Games Played</CardHeader>
+                  <p style={{ margin: '4px 0', fontSize: d?.cardFontSize }}>9</p>
+                  <GamesPlayed.Kpi $d={d}>Between 15–25</GamesPlayed.Kpi>
+                </GamesPlayed.Inner>
+              </GamesPlayed.Outer>
+              <WinRate.Outer value={0.52} $d={d}>
+                <WinRate.Inner value={0.52} $d={d}>
+                  <CardHeader $d={d}>Win Rate</CardHeader>
+                  <p style={{ margin: '4px 0', fontSize: d?.cardFontSize }}>52%</p>
+                  <WinRate.Kpi $d={d}>&gt; 52%</WinRate.Kpi>
+                </WinRate.Inner>
+              </WinRate.Outer>
+              <AvgDeaths.Outer value={4} $d={d}>
+                <AvgDeaths.Inner value={4} $d={d}>
+                  <CardHeader $d={d}>Avg Deaths</CardHeader>
+                  <p style={{ margin: '4px 0', fontSize: d?.cardFontSize }}>4</p>
+                  <AvgDeaths.Kpi $d={d}>&lt; 5</AvgDeaths.Kpi>
+                </AvgDeaths.Inner>
+              </AvgDeaths.Outer>
+              <AvgObj.Outer value={5} $d={d}>
+                <AvgObj.Inner value={5} $d={d}>
+                  <CardHeader $d={d}>Avg Objectives</CardHeader>
+                  <p style={{ margin: '4px 0', fontSize: d?.cardFontSize }}>5</p>
+                  <AvgObj.Kpi $d={d}>3 or more</AvgObj.Kpi>
+                </AvgObj.Inner>
+              </AvgObj.Outer>
+              <GoodTempo.Outer value={0.45} $d={d}>
+                <GoodTempo.Inner value={0.45} $d={d}>
+                  <CardHeader $d={d}>Good Tempo</CardHeader>
+                  <p style={{ margin: '4px 0', fontSize: d?.cardFontSize }}>45%</p>
+                  <GoodTempo.Kpi $d={d}>&gt; 50%</GoodTempo.Kpi>
+                </GoodTempo.Inner>
+              </GoodTempo.Outer>
+              <BadTempo.Outer value={0.04} $d={d}>
+                <BadTempo.Inner value={0.04} $d={d}>
+                  <CardHeader $d={d}>Bad Tempo</CardHeader>
+                  <p style={{ margin: '4px 0', fontSize: d?.cardFontSize }}>4%</p>
+                  <BadTempo.Kpi $d={d}>&lt; 20%</BadTempo.Kpi>
+                </BadTempo.Inner>
+              </BadTempo.Outer>
+              <TiltGames.Outer value={0.04} $d={d}>
+                <TiltGames.Inner value={0.04} $d={d}>
+                  <CardHeader $d={d}>Tilt Games</CardHeader>
+                  <p style={{ margin: '4px 0', fontSize: d?.cardFontSize }}>4%</p>
+                  <TiltGames.Kpi $d={d}>&lt; 15%</TiltGames.Kpi>
+                </TiltGames.Inner>
+              </TiltGames.Outer>
+            </KpiRow>
 
-        {/* ── FOCUS CYCLES ── */}
-        <FocusCyclesSection $searched={searched} $active={activeTab}>
-          {/* Top row: focus cycles table + (future: notes or summary) */}
-          <FocusCyclesRow>
-            <FocusCyclesHalf>
-              <Table>
-                <FocusCyclesTableHeader>
-                  <thead><tr><th>Start Date</th><th>Improvement Focus</th></tr></thead>
-                </FocusCyclesTableHeader>
-                <TableBodyWrapper style={{ maxHeight: '260px' }}>
-                  <FocusCyclesBodyTable $d={d}>
-                    <tbody>
-                      {['2026-05-10','2026-05-24','2026-06-07'].map(date => (
-                        <tr key={date}>
-                          <td>{date}</td>
-                          <td>
-                            <ImprovementFocusSelect $d={d} aria-label="Improvement focus" value={improvementFocus[date] || ''} onChange={(e) => handleImprovementFocusChange(e, date)}>
-                              <option value="" disabled hidden>-- Select --</option>
-                              <option value="Reduce Deaths">Reduce Deaths</option>
-                              <option value="First Item Timing">First Item Timing</option>
-                              <option value="None">None</option>
-                            </ImprovementFocusSelect>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </FocusCyclesBodyTable>
-                </TableBodyWrapper>
-              </Table>
-            </FocusCyclesHalf>
-          </FocusCyclesRow>
+            <Table>
+              <WeeklySummaryTableHeader>
+                <thead><tr>
+                  <th>Week</th><th>Games</th><th>Win%</th>
+                  <th>Avg Deaths</th><th>Avg Obj</th><th>Good Tempo</th>
+                  <th>Bad Tempo</th><th>Tilt%</th><th>Start Rank</th><th>Start LP</th>
+                  <th>End Rank</th><th>End LP</th><th>LP Δ</th>
+                </tr></thead>
+              </WeeklySummaryTableHeader>
+              <TableBodyWrapper>
+                <WeeklySummaryBodyTable $d={d}>
+                  <tbody>
+                    <tr><td>1</td><td>38</td><td>57.89%</td><td>4.95</td><td>4.07</td><td>61.2%</td><td>9.8%</td><td>7.9%</td><td>Gold II</td><td>34</td><td>Plat IV</td><td>48</td><td>+214</td></tr>
+                    <tr><td>2</td><td>41</td><td>56.10%</td><td>5.12</td><td>3.88</td><td>58.5%</td><td>12.2%</td><td>9.8%</td><td>Plat IV</td><td>48</td><td>Plat III</td><td>12</td><td>+164</td></tr>
+                    <tr><td>3</td><td>29</td><td>44.83%</td><td>5.62</td><td>3.48</td><td>48.3%</td><td>17.2%</td><td>13.8%</td><td>Plat III</td><td>12</td><td>Plat IV</td><td>62</td><td>–50</td></tr>
+                  </tbody>
+                </WeeklySummaryBodyTable>
+              </TableBodyWrapper>
+            </Table>
+          </WeeklySummary>
 
-          {/* Improvement Focus Stats — sits in normal flow, never overlaps */}
-          <Table>
-            <ImprovementFocusStatsTableHeader>
-              <thead><tr>
-                <th>Focus Concept</th><th>Win Rate</th><th>Very Good</th><th>Good</th><th>Okay</th><th>Bad</th>
-              </tr></thead>
-            </ImprovementFocusStatsTableHeader>
-            <TableBodyWrapper style={{ maxHeight: '200px' }}>
-              <ImprovementFocusStatsBodyTable $d={d}>
-                <tbody>
-                  <tr><td>Reduce Deaths</td><td>50%</td><td>20%</td><td>30%</td><td>25%</td><td>25%</td></tr>
-                  <tr><td>First Item Timing</td><td>60%</td><td>25%</td><td>35%</td><td>30%</td><td>30%</td></tr>
-                  <tr><td>None</td><td>40%</td><td>15%</td><td>25%</td><td>20%</td><td>20%</td></tr>
-                </tbody>
-              </ImprovementFocusStatsBodyTable>
-            </TableBodyWrapper>
-          </Table>
-        </FocusCyclesSection>
+          {/* FOCUS CYCLES */}
+          <FocusCyclesSection $searched={searched} $active={activeTab}>
+            <FocusCyclesRow>
+              <FocusCyclesHalf>
+                <Table>
+                  <FocusCyclesTableHeader>
+                    <thead><tr><th>Start Date</th><th>Improvement Focus</th></tr></thead>
+                  </FocusCyclesTableHeader>
+                  <TableBodyWrapper style={{ maxHeight: '260px' }}>
+                    <FocusCyclesBodyTable $d={d}>
+                      <tbody>
+                        {MOCK_FOCUS_CYCLES.map(fc => (
+                          <tr key={fc.startdate}>
+                            <td>{fc.startdate}</td>
+                            <td>
+                              <ImprovementFocusSelect $d={d} aria-label="Improvement focus"
+                                value={improvementFocus[fc.startdate] || ''}
+                                onChange={(e) => handleImprovementFocusChange(e, fc.startdate)}>
+                                <option value="" disabled hidden>-- Select --</option>
+                                <option value="Reduce Deaths">Reduce Deaths</option>
+                                <option value="First Item Timing">First Item Timing</option>
+                                <option value="Objective Control">Objective Control</option>
+                                <option value="Clear Speed">Clear Speed</option>
+                                <option value="Gank Pathing">Gank Pathing</option>
+                                <option value="Vision Control">Vision Control</option>
+                                <option value="None">None</option>
+                              </ImprovementFocusSelect>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </FocusCyclesBodyTable>
+                  </TableBodyWrapper>
+                </Table>
+              </FocusCyclesHalf>
+              <FocusCyclesHalf>
+                <Table style={{ height: '100%' }}>
+                  <div style={{ padding: '0.75rem 1rem', textAlign: 'left' }}>
+                    <div style={{ fontSize: '0.72rem', fontWeight: 700, color: '#9fc7c7', letterSpacing: '0.06em', textTransform: 'uppercase', marginBottom: '0.75rem' }}>Cycle Descriptions</div>
+                    {MOCK_FOCUS_CYCLES.map(fc => (
+                      <div key={fc.startdate} style={{ marginBottom: '0.75rem', padding: '0.6rem 0.8rem', background: 'rgba(255,255,255,0.03)', borderRadius: '8px', borderLeft: '3px solid rgba(242,201,107,0.25)' }}>
+                        <div style={{ fontSize: '0.72rem', fontWeight: 700, color: '#f2c96b', marginBottom: '3px' }}>{fc.focus}</div>
+                        <div style={{ fontSize: '0.78rem', color: 'rgba(248,250,252,0.55)', lineHeight: 1.5 }}>{fc.description}</div>
+                      </div>
+                    ))}
+                  </div>
+                </Table>
+              </FocusCyclesHalf>
+            </FocusCyclesRow>
+
+            <Table>
+              <ImprovementFocusStatsTableHeader>
+                <thead><tr>
+                  <th>Focus Concept</th><th>Win Rate</th><th>Very Good</th><th>Good</th><th>Okay</th><th>Bad</th>
+                </tr></thead>
+              </ImprovementFocusStatsTableHeader>
+              <TableBodyWrapper style={{ maxHeight: '200px' }}>
+                <ImprovementFocusStatsBodyTable $d={d}>
+                  <tbody>
+                    {MOCK_FOCUS_STATS.map(r => (
+                      <tr key={r.concept}>
+                        <td>{r.concept}</td><td>{r.winRate}</td><td>{r.veryGood}</td>
+                        <td>{r.good}</td><td>{r.okay}</td><td>{r.bad}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </ImprovementFocusStatsBodyTable>
+              </TableBodyWrapper>
+            </Table>
+          </FocusCyclesSection>
+
+        </>}
+
+        {/* ── GUIDED TOUR — floating button after search ── */}
+        {searched && !tourActive && (
+          <TourStartBtn onClick={startTour}>◎ Reviewer Guide</TourStartBtn>
+        )}
+
+        {/* ── GUIDED TOUR — overlay ── */}
+        {tourActive && (
+          <TourOverlay $active>
+            {/* dimmer — clicking it closes the tour */}
+            <TourDimmer $vis onClick={() => setTourActive(false)} />
+
+            {/* spotlight ring around the anchored element */}
+            {bubblePos.spotRect && (
+              <BubbleSpotlight style={{
+                top:    bubblePos.spotRect.top,
+                left:   bubblePos.spotRect.left,
+                width:  bubblePos.spotRect.width,
+                height: bubblePos.spotRect.height,
+              }} />
+            )}
+
+            {/* bubble — centered when no anchor, otherwise fixed position; only render after position computed */}
+            {(isCentered || bubblePos.top !== null) && (
+              <Bubble style={isCentered
+                ? { top:'50%', left:'50%', transform:'translate(-50%,-50%)' }
+                : { top: bubblePos.top, left: bubblePos.left }
+              }>
+                <BubbleTail $dir={isCentered ? 'none' : bubblePos.tailDir} />
+                <BubbleTitle>{step.title}</BubbleTitle>
+                <BubbleText>{step.text}</BubbleText>
+                <BubbleNav>
+                  <BubbleStep>Step {tourStep + 1} of {TOUR_STEPS.length}</BubbleStep>
+                  <BubbleBtnRow>
+                    {tourStep > 0 && <BubbleBtn onClick={tourPrev}>← Back</BubbleBtn>}
+                    <BubbleBtn onClick={tourNext}>{tourStep === TOUR_STEPS.length - 1 ? 'Close' : 'Next →'}</BubbleBtn>
+                  </BubbleBtnRow>
+                </BubbleNav>
+              </Bubble>
+            )}
+          </TourOverlay>
+        )}
+
+        {/* ── DISCLAIMER ── */}
+        <Disclaimer>
+          Jungle Improvement Log is not endorsed by Riot Games and does not reflect the views or opinions of Riot Games or anyone officially involved in producing or managing Riot Games properties. Riot Games and all associated properties are trademarks or registered trademarks of Riot Games, Inc.
+        </Disclaimer>
+
       </Container>
     </GlobalLayout>
   )
