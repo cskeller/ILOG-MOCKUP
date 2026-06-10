@@ -195,7 +195,7 @@ const TOUR_STEPS = [
   {
     id: 'api-note',
     title: 'How the API would be used',
-    text: "All API calls would happen server-side — the key would never be exposed to the frontend. Endpoint usage: riot/account/v1 (summoner lookup), lol/summoner/v4 (summoner data), lol/league/v4 (current rank), lol/match/v5/matches (match data + timeline). Note: Riot's API does not expose per-game LP history, so the LP column is manually tracked. All metric calculations are computed server-side before the frontend receives any data.",
+    text: "All API calls happen server-side — the key is never exposed to the frontend. Endpoint usage: riot/account/v1 (summoner lookup), lol/summoner/v4 (summoner data), lol/league/v4 (current rank), lol/match/v5/matches (match data + timeline). Note: Riot's API does not expose per-game LP history, so the LP column is manually tracked. All metric calculations are computed server-side before the frontend receives any data.",
     anchor: null, side: 'center', tab: null,
   },
 ]
